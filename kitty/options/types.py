@@ -506,6 +506,7 @@ option_names = (
     'watcher',
     'wayland_enable_ime',
     'wayland_titlebar_color',
+    'wayland_use_libdecor',
     'wheel_scroll_min_lines',
     'wheel_scroll_multiplier',
     'window_alert_on_bell',
@@ -722,6 +723,7 @@ class Options:
     visual_window_select_characters: str = '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     wayland_enable_ime: bool = True
     wayland_titlebar_color: int = 0
+    wayland_use_libdecor: bool = False
     wheel_scroll_min_lines: int = 1
     wheel_scroll_multiplier: float = 5.0
     window_alert_on_bell: bool = True

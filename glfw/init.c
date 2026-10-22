@@ -254,6 +254,7 @@ glfwInitHint(int hint, int value) {
         case GLFW_COCOA_CHDIR_RESOURCES: _glfwInitHints.ns.chdir = value; return;
         case GLFW_COCOA_MENUBAR: _glfwInitHints.ns.menubar = value; return;
         case GLFW_WAYLAND_IME: _glfwInitHints.wl.ime = value; return;
+        case GLFW_WAYLAND_LIBDECOR: _glfwInitHints.wl.libdecor = value; return;
     }
 
     _glfwInputError(GLFW_INVALID_ENUM, "Invalid init hint 0x%08X", hint);

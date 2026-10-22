@@ -1689,7 +1689,10 @@ PyTypeObject Face_Type = {
 
 static void
 free_freetype(void) {
-    cairo_debug_reset_static_data();
+    // cairo_debug_reset_static_data() asserts that no cairo objects are alive.
+    // libdecor plugins load GTK/pango which keep cairo objects alive for the
+    // lifetime of the process, even after libdecor is unloaded.
+    if (!global_state.wayland_libdecor_requested) cairo_debug_reset_static_data();
     FT_Done_FreeType(library);
 }
 

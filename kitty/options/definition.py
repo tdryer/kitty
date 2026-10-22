@@ -3680,6 +3680,26 @@ so disable this if you know you dont need it. Changing this option
 by reloading the config is not supported, it will not have any effect.
 """,
 )
+
+opt(
+    'wayland_use_libdecor',
+    'no',
+    option_type='to_bool',
+    long_text="""
+Use :code:`libdecor` to draw the window decorations (titlebar and borders) on
+Wayland compositors that do not provide server-side decorations, such as GNOME,
+instead of kitty's builtin decorations. libdecor draws them using a plugin,
+typically based on GTK, so they match those of other applications. If libdecor
+is not installed, the builtin decorations are used. Note that if libdecor is
+installed without any plugins, windows will have no decorations. With libdecor,
+:opt:`wayland_titlebar_color` has no effect and :code:`titlebar-only` in
+:opt:`hide_window_decorations` hides all decorations. This is meant for builds of
+kitty that use the system libraries, such as distribution packages. The kitty
+binaries from the kitty website bundle their own versions of some of the
+libraries that libdecor plugins use, which can make the plugins fail or crash.
+Changing this option by reloading the config is not supported.
+""",
+)
 egr()  # }}}
 
 

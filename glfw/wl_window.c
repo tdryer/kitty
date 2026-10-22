@@ -52,6 +52,43 @@ is_layer_shell(_GLFWwindow *window) {
     return window->wl.layer_shell.config.type != GLFW_LAYER_SHELL_NONE;
 }
 
+static bool
+has_libdecor(_GLFWwindow *window) {
+    return window->wl.libdecor.frame != NULL;
+}
+
+// Tells libdecor the content size, it then updates the decorations and window geometry.
+// When responding to a configure event this also acks it.
+static void
+commit_libdecor_frame(_GLFWwindow *window, int width, int height, struct libdecor_configuration *configuration) {
+    struct libdecor_state *frame_state = libdecor_state_new(width, height);
+    libdecor_frame_commit(window->wl.libdecor.frame, frame_state, configuration);
+    libdecor_state_free(frame_state);
+}
+
+// libdecor plugins can make the frame larger than the content size they were given,
+// for example the GTK plugin sets a minimum width that fits its titlebar
+static void
+clamp_to_libdecor_min_size(_GLFWwindow *window, int *width, int *height) {
+    if (!libdecor_frame_get_min_content_size) return;
+    int min_width, min_height;
+    libdecor_frame_get_min_content_size(window->wl.libdecor.frame, &min_width, &min_height);
+    *width = MAX(*width, min_width);
+    *height = MAX(*height, min_height);
+}
+
+// libdecor cannot hide only the titlebar so hide all decorations in that case
+static bool
+libdecor_frame_should_be_visible(_GLFWwindow *window) {
+    return window->decorated && !window->wl.decorations.titlebar_hidden;
+}
+
+// The xdg_toplevel of the window whether it was created by us or by libdecor
+static struct xdg_toplevel *
+get_xdg_toplevel(_GLFWwindow *window) {
+    return has_libdecor(window) ? libdecor_frame_get_xdg_toplevel(window->wl.libdecor.frame) : window->wl.xdg.toplevel;
+}
+
 static void
 inhibit_shortcuts_for(_GLFWwindow *window, bool inhibit) {
     if (inhibit) {
@@ -478,7 +515,7 @@ maybe_recompute_initial_window_size(_GLFWwindow *window) {
     // at the right size and the compositor's authoritative configure agrees.
     if (window->wl.window_fully_created) return;
     if (!initial_window_size_callback) return;
-    if (!window->wl.xdg.toplevel) return;                     // only ordinary toplevels have cell-based sizes
+    if (!get_xdg_toplevel(window)) return;                    // only ordinary toplevels have cell-based sizes
     if (window->wl.layer_shell.zwlr_layer_surface_v1) return; // layer-shell surfaces size themselves
     double scale = _glfwWaylandWindowScale(window);
     int w = window->wl.width, h = window->wl.height;
@@ -578,6 +615,17 @@ _glfwWaylandSurfaceOutputsChanged(_GLFWwindow *window) {
     if (window->wl.frameCallbackData.callback) window->wl.frameCallbackData.callback(window->wl.frameCallbackData.id);
 }
 
+// The surface enter/leave events are sent for every wl_output object bound by
+// this client, including ones bound by libraries such as libdecor plugins,
+// whose user data is not a _GLFWmonitor, so only accept our own outputs.
+static _GLFWmonitor *
+monitor_for_output(struct wl_output *output) {
+    for (int i = 0; i < _glfw.monitorCount; i++) {
+        if (_glfw.monitors[i]->wl.output == output) return _glfw.monitors[i];
+    }
+    return NULL;
+}
+
 static void
 surfaceHandleEnter(void *data, struct wl_surface *surface UNUSED, struct wl_output *output) {
     _GLFWwindow *window = data;
@@ -586,7 +634,7 @@ surfaceHandleEnter(void *data, struct wl_surface *surface UNUSED, struct wl_outp
     // for arguments declared non-nullable, so this must be handled.
     // See https://wayland.freedesktop.org/docs/html/apc.html
     if (!output) return;
-    _GLFWmonitor *monitor = wl_output_get_user_data(output);
+    _GLFWmonitor *monitor = monitor_for_output(output);
     // never store NULL in window->wl.monitors as checkScaleChange() dereferences
     // every entry unconditionally
     if (!monitor) return;
@@ -613,7 +661,7 @@ surfaceHandleLeave(void *data, struct wl_surface *surface UNUSED, struct wl_outp
     // case registryHandleGlobalRemove() has already dropped the monitor from
     // window->wl.monitors, so there is nothing left to do here.
     if (!output) return;
-    _GLFWmonitor *monitor = wl_output_get_user_data(output);
+    _GLFWmonitor *monitor = monitor_for_output(output);
     if (!monitor) return;
 
     for (int i = window->wl.monitorsCount - 1; i >= 0; i--) {
@@ -737,6 +785,11 @@ create_surface(_GLFWwindow *window, const _GLFWwndconfig *wndconfig) {
 
 static void
 setFullscreen(_GLFWwindow *window, _GLFWmonitor *monitor, bool on) {
+    if (has_libdecor(window)) {
+        if (on) libdecor_frame_set_fullscreen(window->wl.libdecor.frame, monitor ? monitor->wl.output : NULL);
+        else libdecor_frame_unset_fullscreen(window->wl.libdecor.frame);
+        return;
+    }
     if (!window->wl.xdg.toplevel) return;
     if (!window->wl.wm_capabilities.fullscreen) {
         _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland compositor does not support fullscreen");
@@ -766,10 +819,34 @@ report_live_resize(_GLFWwindow *w, bool started) {
 }
 
 static void
-xdgToplevelHandleConfigure(void *data, struct xdg_toplevel *toplevel UNUSED, int32_t width, int32_t height, struct wl_array *states) {
-    _GLFWwindow *window = data;
+set_pending_toplevel_configure(_GLFWwindow *window, int32_t width, int32_t height, uint32_t new_states) {
     float aspectRatio;
     float targetRatio;
+    if (new_states & TOPLEVEL_STATE_RESIZING) {
+        if (width) window->wl.user_requested_content_size.width = width;
+        if (height) window->wl.user_requested_content_size.height = height;
+        if (!(window->wl.current.toplevel_states & TOPLEVEL_STATE_RESIZING)) report_live_resize(window, true);
+    }
+    if (width != 0 && height != 0) {
+        if (!(new_states & TOPLEVEL_STATE_DOCKED)) {
+            if (window->numer != GLFW_DONT_CARE && window->denom != GLFW_DONT_CARE) {
+                aspectRatio = (float)width / (float)height;
+                targetRatio = (float)window->numer / (float)window->denom;
+                if (aspectRatio < targetRatio) height = (int32_t)((float)width / targetRatio);
+                else if (aspectRatio > targetRatio) width = (int32_t)((float)height * targetRatio);
+            }
+        }
+    }
+
+    window->wl.pending.toplevel_states = new_states;
+    window->wl.pending.width = width;
+    window->wl.pending.height = height;
+    window->wl.pending_state |= PENDING_STATE_TOPLEVEL;
+}
+
+static void
+xdgToplevelHandleConfigure(void *data, struct xdg_toplevel *toplevel UNUSED, int32_t width, int32_t height, struct wl_array *states) {
+    _GLFWwindow *window = data;
     enum xdg_toplevel_state *state;
     uint32_t new_states = 0;
     debug("XDG top-level configure event for window %llu: size: %dx%d states: ", window->id, width, height);
@@ -802,26 +879,7 @@ xdgToplevelHandleConfigure(void *data, struct xdg_toplevel *toplevel UNUSED, int
         }
     }
     debug("\n");
-    if (new_states & TOPLEVEL_STATE_RESIZING) {
-        if (width) window->wl.user_requested_content_size.width = width;
-        if (height) window->wl.user_requested_content_size.height = height;
-        if (!(window->wl.current.toplevel_states & TOPLEVEL_STATE_RESIZING)) report_live_resize(window, true);
-    }
-    if (width != 0 && height != 0) {
-        if (!(new_states & TOPLEVEL_STATE_DOCKED)) {
-            if (window->numer != GLFW_DONT_CARE && window->denom != GLFW_DONT_CARE) {
-                aspectRatio = (float)width / (float)height;
-                targetRatio = (float)window->numer / (float)window->denom;
-                if (aspectRatio < targetRatio) height = (int32_t)((float)width / targetRatio);
-                else if (aspectRatio > targetRatio) width = (int32_t)((float)height * targetRatio);
-            }
-        }
-    }
-
-    window->wl.pending.toplevel_states = new_states;
-    window->wl.pending.width = width;
-    window->wl.pending.height = height;
-    window->wl.pending_state |= PENDING_STATE_TOPLEVEL;
+    set_pending_toplevel_configure(window, width, height, new_states);
 }
 
 static void
@@ -1061,8 +1119,98 @@ xdgSurfaceHandleConfigure(void *data, struct xdg_surface *surface, uint32_t seri
 
 static const struct xdg_surface_listener xdgSurfaceListener = {xdgSurfaceHandleConfigure};
 
+static uint32_t
+libdecor_window_state_to_toplevel_states(enum libdecor_window_state s) {
+    uint32_t ans = 0;
+#define C(x) \
+    if (s & LIBDECOR_WINDOW_STATE_##x) ans |= TOPLEVEL_STATE_##x
+    C(MAXIMIZED);
+    C(FULLSCREEN);
+    C(RESIZING);
+    C(SUSPENDED);
+    C(TILED_LEFT);
+    C(TILED_RIGHT);
+    C(TILED_TOP);
+    C(TILED_BOTTOM);
+    C(CONSTRAINED_LEFT);
+    C(CONSTRAINED_RIGHT);
+    C(CONSTRAINED_TOP);
+    C(CONSTRAINED_BOTTOM);
+#undef C
+    if (s & LIBDECOR_WINDOW_STATE_ACTIVE) ans |= TOPLEVEL_STATE_ACTIVATED;
+    return ans;
+}
+
+static void
+libdecor_frame_handle_configure(struct libdecor_frame *frame, struct libdecor_configuration *configuration, void *user_data) {
+    _GLFWwindow *window = user_data;
+    int width = 0, height = 0;
+    enum libdecor_window_state state;
+    uint32_t new_states = window->wl.current.toplevel_states;
+    if (libdecor_configuration_get_window_state(configuration, &state)) new_states = libdecor_window_state_to_toplevel_states(state);
+    // libdecor reports the size excluding its decorations
+    if (!libdecor_configuration_get_content_size(configuration, frame, &width, &height)) width = height = 0;
+    debug("libdecor configure event for window %llu: size: %dx%d states: 0x%x\n", window->id, width, height, new_states);
+    set_pending_toplevel_configure(window, width, height, new_states);
+    width = window->wl.pending.width;
+    height = window->wl.pending.height;
+    // Use the size requested by the user if the compositor leaves the size up to us
+    csd_set_window_geometry(window, &width, &height);
+    // libdecor only asks the compositor to remove server-side decorations once it
+    // knows the decoration mode, which is sent along with the first configure event
+    if (!window->wl.window_fully_created && !libdecor_frame_should_be_visible(window)) libdecor_frame_set_visibility(window->wl.libdecor.frame, false);
+    // This acks the configure event so it must happen before the surface is
+    // committed in apply_xdg_configure_changes()
+    commit_libdecor_frame(window, width, height, configuration);
+    int min_width = width, min_height = height;
+    clamp_to_libdecor_min_size(window, &min_width, &min_height);
+    if (min_width != width || min_height != height) {
+        window->wl.pending.width = min_width;
+        window->wl.pending.height = min_height;
+    }
+    apply_xdg_configure_changes(window);
+    if (!window->wl.window_fully_created) {
+        if (!attach_temp_buffer_during_window_creation(window)) window->wl.window_fully_created = true;
+    }
+}
+
+static void
+libdecor_frame_handle_close(struct libdecor_frame *frame UNUSED, void *user_data) {
+    _GLFWwindow *window = user_data;
+    window->wl.window_fully_created = true;
+    _glfwInputWindowCloseRequest(window);
+}
+
+static void
+libdecor_frame_handle_commit(struct libdecor_frame *frame UNUSED, void *user_data) {
+    commit_window_surface_if_safe(user_data);
+}
+
+static void
+libdecor_frame_handle_dismiss_popup(struct libdecor_frame *frame UNUSED, const char *seat_name UNUSED, void *user_data UNUSED) {}
+
+static void
+libdecor_frame_handle_bounds(struct libdecor_frame *frame UNUSED, int width, int height, void *user_data) {
+    _GLFWwindow *window = user_data;
+    window->wl.xdg.top_level_bounds.width = width;
+    window->wl.xdg.top_level_bounds.height = height;
+    debug("Compositor set top-level bounds of: %dx%d for window %llu\n", width, height, window->id);
+}
+
+static const struct libdecor_frame_interface libdecor_frame_iface = {
+    .configure = libdecor_frame_handle_configure,
+    .close = libdecor_frame_handle_close,
+    .commit = libdecor_frame_handle_commit,
+    .dismiss_popup = libdecor_frame_handle_dismiss_popup,
+    .bounds = libdecor_frame_handle_bounds,
+};
+
 static void
 setXdgDecorations(_GLFWwindow *window) {
+    if (has_libdecor(window)) {
+        libdecor_frame_set_visibility(window->wl.libdecor.frame, libdecor_frame_should_be_visible(window));
+        return;
+    }
     if (window->wl.xdg.decoration) {
         if (window->wl.decorations.titlebar_hidden) {
             window->wl.decorations.serverSide = false;
@@ -1293,12 +1441,15 @@ static void
 set_toplevel_properties(_GLFWwindow *window) {
     // These are reset by the compositor whenever the toplevel is unmapped, so
     // they must be re-sent before every map, not just the first one.
-    if (window->wl.appId[0]) xdg_toplevel_set_app_id(window->wl.xdg.toplevel, window->wl.appId);
+    struct xdg_toplevel *toplevel = get_xdg_toplevel(window);
+    if (window->wl.appId[0]) xdg_toplevel_set_app_id(toplevel, window->wl.appId);
     if (window->wl.windowTag[0] && _glfw.wl.xdg_toplevel_tag_manager_v1)
-        xdg_toplevel_tag_manager_v1_set_toplevel_tag(_glfw.wl.xdg_toplevel_tag_manager_v1, window->wl.xdg.toplevel, window->wl.windowTag);
+        xdg_toplevel_tag_manager_v1_set_toplevel_tag(_glfw.wl.xdg_toplevel_tag_manager_v1, toplevel, window->wl.windowTag);
 
-    if (window->wl.title) xdg_toplevel_set_title(window->wl.xdg.toplevel, window->wl.title);
+    if (window->wl.title) xdg_toplevel_set_title(toplevel, window->wl.title);
 
+    // libdecor sends the size limits when its frame is committed
+    if (has_libdecor(window)) return;
     if (window->minwidth != GLFW_DONT_CARE && window->minheight != GLFW_DONT_CARE)
         xdg_toplevel_set_min_size(window->wl.xdg.toplevel, window->minwidth, window->minheight);
     if (window->maxwidth != GLFW_DONT_CARE && window->maxheight != GLFW_DONT_CARE)
@@ -1306,8 +1457,55 @@ set_toplevel_properties(_GLFWwindow *window) {
 }
 
 static bool
+create_libdecor_frame(_GLFWwindow *window) {
+    struct libdecor_frame *frame = libdecor_decorate(_glfw.wl.libdecor.context, window->wl.surface, &libdecor_frame_iface, window);
+    if (!frame) {
+        _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Failed to create libdecor frame, falling back to builtin decorations");
+        _glfw.wl.libdecor.frame_creation_failed = true;
+        return false;
+    }
+    if (!libdecor_frame_get_xdg_toplevel(frame)) { // libdecor creates the toplevel once it is fully initialized
+        libdecor_frame_unref(frame);
+        _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: libdecor is not initialized, falling back to builtin decorations");
+        _glfw.wl.libdecor.frame_creation_failed = true;
+        return false;
+    }
+    window->wl.libdecor.frame = frame;
+    // libdecor needs to know the content size before it can draw decorations
+    commit_libdecor_frame(window, window->wl.width, window->wl.height, NULL);
+
+    // Set these via libdecor as it needs them to draw the decorations and
+    // sends them to the compositor
+    if (window->wl.appId[0]) libdecor_frame_set_app_id(frame, window->wl.appId);
+    if (window->wl.windowTag[0] && _glfw.wl.xdg_toplevel_tag_manager_v1)
+        xdg_toplevel_tag_manager_v1_set_toplevel_tag(_glfw.wl.xdg_toplevel_tag_manager_v1, get_xdg_toplevel(window), window->wl.windowTag);
+    if (window->wl.title) libdecor_frame_set_title(frame, window->wl.title);
+    if (window->minwidth != GLFW_DONT_CARE && window->minheight != GLFW_DONT_CARE)
+        libdecor_frame_set_min_content_size(frame, window->minwidth, window->minheight);
+    if (window->maxwidth != GLFW_DONT_CARE && window->maxheight != GLFW_DONT_CARE)
+        libdecor_frame_set_max_content_size(frame, window->maxwidth, window->maxheight);
+
+    if (window->monitor) {
+        libdecor_frame_set_fullscreen(frame, window->monitor->wl.output);
+    } else {
+        if (window->wl.maximize_on_first_show) {
+            window->wl.maximize_on_first_show = false;
+            libdecor_frame_set_maximized(frame);
+        }
+        setXdgDecorations(window);
+    }
+
+    libdecor_frame_map(frame);
+    wl_display_roundtrip(_glfw.wl.display);
+    window->wl.created = true;
+    return true;
+}
+
+static bool
 create_window_desktop_surface(_GLFWwindow *window) {
     if (is_layer_shell(window)) return create_layer_shell_surface(window);
+    // Don't retry, and log the error again, for every window once libdecor has failed
+    if (_glfw.wl.libdecor.context && !_glfw.wl.libdecor.frame_creation_failed && create_libdecor_frame(window)) return true;
 
     window->wl.xdg.surface = xdg_wm_base_get_xdg_surface(_glfw.wl.wmBase, window->wl.surface);
     if (!window->wl.xdg.surface) {
@@ -1455,6 +1653,9 @@ handleEvents(monotonic_t timeout) {
         int num = wl_display_dispatch_pending(display);
         (void)num;
         EVDBG("dispatched %d Wayland events", num);
+        // libdecor uses our display connection, but its plugin may need to
+        // do other work, for instance the GTK plugin runs the GLib main loop
+        if (_glfw.wl.libdecor.context) libdecor_dispatch(_glfw.wl.libdecor.context, 0);
     }
     glfw_ibus_dispatch(&_glfw.wl.xkb.ibus);
     glfw_dbus_session_bus_dispatch();
@@ -1613,6 +1814,8 @@ _glfwPlatformDestroyWindow(_GLFWwindow *window) {
 
     if (window->wl.native) wl_egl_window_destroy(window->wl.native);
 
+    if (window->wl.libdecor.frame) libdecor_frame_unref(window->wl.libdecor.frame);
+
     if (window->wl.xdg.toplevel) xdg_toplevel_destroy(window->wl.xdg.toplevel);
 
     if (window->wl.xdg.surface) xdg_surface_destroy(window->wl.xdg.surface);
@@ -1636,7 +1839,10 @@ _glfwPlatformSetWindowTitle(_GLFWwindow *window, const char *title) {
     // one causes an abort(). Since titles this large are meaningless anyway
     // ensure they do not happen.
     window->wl.title = utf_8_strndup(title, 2048);
-    if (window->wl.xdg.toplevel) {
+    if (has_libdecor(window)) {
+        libdecor_frame_set_title(window->wl.libdecor.frame, window->wl.title);
+        commit_window_surface_if_safe(window);
+    } else if (window->wl.xdg.toplevel) {
         xdg_toplevel_set_title(window->wl.xdg.toplevel, window->wl.title);
         csd_change_title(window);
         commit_window_surface_if_safe(window);
@@ -1649,7 +1855,8 @@ _glfwPlatformSetWindowIcon(_GLFWwindow *window, int count, const GLFWimage *imag
         _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Cannot set window icon on layer shell surfaces");
         return;
     }
-    if (!window->wl.xdg.toplevel) {
+    struct xdg_toplevel *toplevel = get_xdg_toplevel(window);
+    if (!toplevel) {
         _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Ignoring attempt to set window icon on window without a toplevel");
         return;
     }
@@ -1662,7 +1869,7 @@ _glfwPlatformSetWindowIcon(_GLFWwindow *window, int count, const GLFWimage *imag
         return;
     }
     if (!count) {
-        xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.xdg_toplevel_icon_manager_v1, window->wl.xdg.toplevel, NULL);
+        xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.xdg_toplevel_icon_manager_v1, toplevel, NULL);
         return;
     }
     struct wl_buffer **buffers = malloc(sizeof(struct wl_buffer *) * count);
@@ -1692,7 +1899,7 @@ _glfwPlatformSetWindowIcon(_GLFWwindow *window, int count, const GLFWimage *imag
         xdg_toplevel_icon_v1_add_buffer(icon, buffers[i], 1);
         pos += sz;
     }
-    xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.xdg_toplevel_icon_manager_v1, window->wl.xdg.toplevel, icon);
+    xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.xdg_toplevel_icon_manager_v1, toplevel, icon);
     xdg_toplevel_icon_v1_destroy(icon);
     for (int i = 0; i < count; i++) wl_buffer_destroy(buffers[i]);
     free(buffers);
@@ -1740,9 +1947,11 @@ _glfwPlatformSetWindowSize(_GLFWwindow *window, int width, int height) {
         window->wl.user_requested_content_size.height = height;
         int32_t w = 0, h = 0;
         csd_set_window_geometry(window, &w, &h);
+        if (has_libdecor(window)) clamp_to_libdecor_min_size(window, &w, &h);
         window->wl.width = w;
         window->wl.height = h;
         resizeFramebuffer(window);
+        if (has_libdecor(window)) commit_libdecor_frame(window, w, h, NULL);
         csd_set_visible(window, csd_should_window_be_decorated(window)); // resizes the csd iff the window currently has csd
         commit_window_surface_if_safe(window);
         inform_compositor_of_window_geometry(window, "SetWindowSize");
@@ -1751,7 +1960,15 @@ _glfwPlatformSetWindowSize(_GLFWwindow *window, int width, int height) {
 
 void
 _glfwPlatformSetWindowSizeLimits(_GLFWwindow *window, int minwidth, int minheight, int maxwidth, int maxheight) {
-    if (window->wl.xdg.toplevel) {
+    if (has_libdecor(window)) {
+        if (minwidth == GLFW_DONT_CARE || minheight == GLFW_DONT_CARE) minwidth = minheight = 0;
+        if (maxwidth == GLFW_DONT_CARE || maxheight == GLFW_DONT_CARE) maxwidth = maxheight = 0;
+        libdecor_frame_set_min_content_size(window->wl.libdecor.frame, minwidth, minheight);
+        libdecor_frame_set_max_content_size(window->wl.libdecor.frame, maxwidth, maxheight);
+        // libdecor only sends the limits to the compositor on commit
+        commit_libdecor_frame(window, window->wl.width, window->wl.height, NULL);
+        commit_window_surface_if_safe(window);
+    } else if (window->wl.xdg.toplevel) {
         if (minwidth == GLFW_DONT_CARE || minheight == GLFW_DONT_CARE) minwidth = minheight = 0;
         if (maxwidth == GLFW_DONT_CARE || maxheight == GLFW_DONT_CARE) maxwidth = maxheight = 0;
         xdg_toplevel_set_min_size(window->wl.xdg.toplevel, minwidth, minheight);
@@ -1783,6 +2000,7 @@ _glfwPlatformGetFramebufferSize(_GLFWwindow *window, int *width, int *height) {
 
 void
 _glfwPlatformGetWindowFrameSize(_GLFWwindow *window, int *left, int *top, int *right, int *bottom) {
+    if (has_libdecor(window)) return; // libdecor does not expose the size of its decorations
     if (window->decorated && !window->monitor && !window->wl.decorations.serverSide) {
         if (top)
             *top = window->wl.decorations.titlebar_hidden ? 0 : window->wl.decorations.metrics.top - window->wl.decorations.metrics.visible_titlebar_height;
@@ -1812,7 +2030,9 @@ _glfwPlatformGetKeyboardRepeatDelay(monotonic_t *delay, monotonic_t *interval) {
 
 void
 _glfwPlatformIconifyWindow(_GLFWwindow *window) {
-    if (window->wl.xdg.toplevel) {
+    if (has_libdecor(window)) {
+        libdecor_frame_set_minimized(window->wl.libdecor.frame);
+    } else if (window->wl.xdg.toplevel) {
         if (window->wl.wm_capabilities.minimize) xdg_toplevel_set_minimized(window->wl.xdg.toplevel);
         else _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland compositor does not support minimizing windows");
     }
@@ -1820,7 +2040,10 @@ _glfwPlatformIconifyWindow(_GLFWwindow *window) {
 
 void
 _glfwPlatformRestoreWindow(_GLFWwindow *window) {
-    if (window->wl.xdg.toplevel) {
+    if (has_libdecor(window)) {
+        if (window->monitor) libdecor_frame_unset_fullscreen(window->wl.libdecor.frame);
+        if (window->wl.current.toplevel_states & TOPLEVEL_STATE_MAXIMIZED) libdecor_frame_unset_maximized(window->wl.libdecor.frame);
+    } else if (window->wl.xdg.toplevel) {
         if (window->monitor) xdg_toplevel_unset_fullscreen(window->wl.xdg.toplevel);
         if (window->wl.current.toplevel_states & TOPLEVEL_STATE_MAXIMIZED) xdg_toplevel_unset_maximized(window->wl.xdg.toplevel);
         // There is no way to unset minimized, or even to know if we are
@@ -1831,7 +2054,9 @@ _glfwPlatformRestoreWindow(_GLFWwindow *window) {
 
 void
 _glfwPlatformMaximizeWindow(_GLFWwindow *window) {
-    if (window->wl.xdg.toplevel) {
+    if (has_libdecor(window)) {
+        libdecor_frame_set_maximized(window->wl.libdecor.frame);
+    } else if (window->wl.xdg.toplevel) {
         if (window->wl.wm_capabilities.maximize) xdg_toplevel_set_maximized(window->wl.xdg.toplevel);
         else _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland compositor does not support maximizing windows");
     }
@@ -1846,7 +2071,18 @@ _glfwPlatformShowWindow(_GLFWwindow *window, bool move_to_active_screen UNUSED) 
         } else {
             // workaround for kwin layer shell bug: https://bugs.kde.org/show_bug.cgi?id=503121
             if (is_layer_shell(window)) layer_set_properties(window, false, window->wl.width, window->wl.height);
-            else if (window->wl.xdg.toplevel) {
+            else if (has_libdecor(window)) {
+                // Unmapping an xdg_toplevel resets all its state, so restore it.
+                // libdecor caches the title etc. and does not re-send unchanged
+                // values, so set_toplevel_properties() sends them directly.
+                set_toplevel_properties(window);
+                const WaylandWindowState states = window->wl.current.toplevel_states;
+                if (states & TOPLEVEL_STATE_FULLSCREEN) setFullscreen(window, NULL, true);
+                else if (states & TOPLEVEL_STATE_MAXIMIZED) libdecor_frame_set_maximized(window->wl.libdecor.frame);
+                setXdgDecorations(window);
+                // re-sends the size limits and window geometry
+                commit_libdecor_frame(window, window->wl.width, window->wl.height, NULL);
+            } else if (window->wl.xdg.toplevel) {
                 // Unmapping an xdg_toplevel resets all its state, so restore it
                 set_toplevel_properties(window);
                 const WaylandWindowState states = window->wl.current.toplevel_states;
@@ -3117,6 +3353,7 @@ glfwDBusMonitorSessionState(GLFWDBussessionstatefun callback) {
 GLFWAPI bool
 glfwWaylandSetTitlebarColor(GLFWwindow *handle, uint32_t color, bool use_system_color) {
     _GLFWwindow *window = (_GLFWwindow *)handle;
+    if (has_libdecor(window)) return false;
     if (!window->wl.decorations.serverSide) {
         csd_set_titlebar_color(window, color, use_system_color);
         return true;

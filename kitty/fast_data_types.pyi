@@ -652,7 +652,12 @@ def glfw_terminate() -> None:
     pass
 
 def glfw_init(
-    path: str, edge_spacing_func: Callable[[EdgeLiteral], float], debug_keyboard: bool = False, debug_rendering: bool = False, wayland_enable_ime: bool = True
+    path: str,
+    edge_spacing_func: Callable[[EdgeLiteral], float],
+    debug_keyboard: bool = False,
+    debug_rendering: bool = False,
+    wayland_enable_ime: bool = True,
+    wayland_use_libdecor: bool = False,
 ) -> tuple[bool, bool]:
     pass
 

@@ -103,6 +103,97 @@ typedef void (*PFN_wl_egl_window_resize)(struct wl_egl_window *, int, int, int, 
 #define wl_egl_window_destroy _glfw.wl.egl.window_destroy
 #define wl_egl_window_resize _glfw.wl.egl.window_resize
 
+// libdecor is loaded at runtime with dlopen() so declare the parts of its API
+// that we use here. These must match libdecor.h
+struct libdecor;
+struct libdecor_frame;
+struct libdecor_state;
+struct libdecor_configuration;
+
+enum libdecor_error {
+    LIBDECOR_ERROR_COMPOSITOR_INCOMPATIBLE,
+    LIBDECOR_ERROR_INVALID_FRAME_CONFIGURATION,
+};
+
+enum libdecor_window_state {
+    LIBDECOR_WINDOW_STATE_NONE = 0,
+    LIBDECOR_WINDOW_STATE_ACTIVE = 1 << 0,
+    LIBDECOR_WINDOW_STATE_MAXIMIZED = 1 << 1,
+    LIBDECOR_WINDOW_STATE_FULLSCREEN = 1 << 2,
+    LIBDECOR_WINDOW_STATE_TILED_LEFT = 1 << 3,
+    LIBDECOR_WINDOW_STATE_TILED_RIGHT = 1 << 4,
+    LIBDECOR_WINDOW_STATE_TILED_TOP = 1 << 5,
+    LIBDECOR_WINDOW_STATE_TILED_BOTTOM = 1 << 6,
+    LIBDECOR_WINDOW_STATE_SUSPENDED = 1 << 7,
+    LIBDECOR_WINDOW_STATE_RESIZING = 1 << 8,
+    LIBDECOR_WINDOW_STATE_CONSTRAINED_LEFT = 1 << 9,
+    LIBDECOR_WINDOW_STATE_CONSTRAINED_RIGHT = 1 << 10,
+    LIBDECOR_WINDOW_STATE_CONSTRAINED_TOP = 1 << 11,
+    LIBDECOR_WINDOW_STATE_CONSTRAINED_BOTTOM = 1 << 12,
+};
+
+struct libdecor_interface {
+    void (*error)(struct libdecor *context, enum libdecor_error error, const char *message);
+    void (*reserved[10])(void);
+};
+
+struct libdecor_frame_interface {
+    void (*configure)(struct libdecor_frame *frame, struct libdecor_configuration *configuration, void *user_data);
+    void (*close)(struct libdecor_frame *frame, void *user_data);
+    void (*commit)(struct libdecor_frame *frame, void *user_data);
+    void (*dismiss_popup)(struct libdecor_frame *frame, const char *seat_name, void *user_data);
+    void (*bounds)(struct libdecor_frame *frame, int width, int height, void *user_data);
+    void (*reserved[9])(void);
+};
+
+typedef struct libdecor *(*PFN_libdecor_new)(struct wl_display *, const struct libdecor_interface *);
+typedef void (*PFN_libdecor_unref)(struct libdecor *);
+typedef int (*PFN_libdecor_dispatch)(struct libdecor *, int);
+typedef struct libdecor_frame *(*PFN_libdecor_decorate)(struct libdecor *, struct wl_surface *, const struct libdecor_frame_interface *, void *);
+typedef void (*PFN_libdecor_frame_unref)(struct libdecor_frame *);
+typedef void (*PFN_libdecor_frame_set_visibility)(struct libdecor_frame *, bool);
+typedef void (*PFN_libdecor_frame_set_app_id)(struct libdecor_frame *, const char *);
+typedef void (*PFN_libdecor_frame_set_title)(struct libdecor_frame *, const char *);
+typedef void (*PFN_libdecor_frame_set_min_content_size)(struct libdecor_frame *, int, int);
+typedef void (*PFN_libdecor_frame_set_max_content_size)(struct libdecor_frame *, int, int);
+typedef void (*PFN_libdecor_frame_get_min_content_size)(const struct libdecor_frame *, int *, int *);
+typedef void (*PFN_libdecor_frame_commit)(struct libdecor_frame *, struct libdecor_state *, struct libdecor_configuration *);
+typedef void (*PFN_libdecor_frame_set_minimized)(struct libdecor_frame *);
+typedef void (*PFN_libdecor_frame_set_maximized)(struct libdecor_frame *);
+typedef void (*PFN_libdecor_frame_unset_maximized)(struct libdecor_frame *);
+typedef void (*PFN_libdecor_frame_set_fullscreen)(struct libdecor_frame *, struct wl_output *);
+typedef void (*PFN_libdecor_frame_unset_fullscreen)(struct libdecor_frame *);
+typedef void (*PFN_libdecor_frame_map)(struct libdecor_frame *);
+typedef struct xdg_toplevel *(*PFN_libdecor_frame_get_xdg_toplevel)(struct libdecor_frame *);
+typedef struct libdecor_state *(*PFN_libdecor_state_new)(int, int);
+typedef void (*PFN_libdecor_state_free)(struct libdecor_state *);
+typedef bool (*PFN_libdecor_configuration_get_content_size)(struct libdecor_configuration *, struct libdecor_frame *, int *, int *);
+typedef bool (*PFN_libdecor_configuration_get_window_state)(struct libdecor_configuration *, enum libdecor_window_state *);
+
+#define libdecor_new _glfw.wl.libdecor.new
+#define libdecor_unref _glfw.wl.libdecor.unref
+#define libdecor_dispatch _glfw.wl.libdecor.dispatch
+#define libdecor_decorate _glfw.wl.libdecor.decorate
+#define libdecor_frame_unref _glfw.wl.libdecor.frame_unref
+#define libdecor_frame_set_visibility _glfw.wl.libdecor.frame_set_visibility
+#define libdecor_frame_set_app_id _glfw.wl.libdecor.frame_set_app_id
+#define libdecor_frame_set_title _glfw.wl.libdecor.frame_set_title
+#define libdecor_frame_set_min_content_size _glfw.wl.libdecor.frame_set_min_content_size
+#define libdecor_frame_set_max_content_size _glfw.wl.libdecor.frame_set_max_content_size
+#define libdecor_frame_get_min_content_size _glfw.wl.libdecor.frame_get_min_content_size
+#define libdecor_frame_commit _glfw.wl.libdecor.frame_commit
+#define libdecor_frame_set_minimized _glfw.wl.libdecor.frame_set_minimized
+#define libdecor_frame_set_maximized _glfw.wl.libdecor.frame_set_maximized
+#define libdecor_frame_unset_maximized _glfw.wl.libdecor.frame_unset_maximized
+#define libdecor_frame_set_fullscreen _glfw.wl.libdecor.frame_set_fullscreen
+#define libdecor_frame_unset_fullscreen _glfw.wl.libdecor.frame_unset_fullscreen
+#define libdecor_frame_map _glfw.wl.libdecor.frame_map
+#define libdecor_frame_get_xdg_toplevel _glfw.wl.libdecor.frame_get_xdg_toplevel
+#define libdecor_state_new _glfw.wl.libdecor.state_new
+#define libdecor_state_free _glfw.wl.libdecor.state_free
+#define libdecor_configuration_get_content_size _glfw.wl.libdecor.configuration_get_content_size
+#define libdecor_configuration_get_window_state _glfw.wl.libdecor.configuration_get_window_state
+
 typedef enum _GLFWCSDSurface {
     CENTRAL_WINDOW,
     CSD_titlebar,
@@ -188,6 +279,9 @@ typedef struct _GLFWwindowWayland {
             int width, height;
         } top_level_bounds;
     } xdg;
+    struct {
+        struct libdecor_frame *frame;
+    } libdecor;
     struct wp_fractional_scale_v1 *wp_fractional_scale_v1;
     struct wp_viewport *wp_viewport;
     struct org_kde_kwin_blur *org_kde_kwin_blur;
@@ -450,6 +544,36 @@ typedef struct _GLFWlibraryWayland {
         glfw_wl_xdg_activation_request *array;
         size_t capacity, sz;
     } activation_requests;
+
+    struct {
+        void *handle;
+        struct libdecor *context;
+        bool frame_creation_failed;
+
+        PFN_libdecor_new new;
+        PFN_libdecor_unref unref;
+        PFN_libdecor_dispatch dispatch;
+        PFN_libdecor_decorate decorate;
+        PFN_libdecor_frame_unref frame_unref;
+        PFN_libdecor_frame_set_visibility frame_set_visibility;
+        PFN_libdecor_frame_set_app_id frame_set_app_id;
+        PFN_libdecor_frame_set_title frame_set_title;
+        PFN_libdecor_frame_set_min_content_size frame_set_min_content_size;
+        PFN_libdecor_frame_set_max_content_size frame_set_max_content_size;
+        PFN_libdecor_frame_get_min_content_size frame_get_min_content_size;
+        PFN_libdecor_frame_commit frame_commit;
+        PFN_libdecor_frame_set_minimized frame_set_minimized;
+        PFN_libdecor_frame_set_maximized frame_set_maximized;
+        PFN_libdecor_frame_unset_maximized frame_unset_maximized;
+        PFN_libdecor_frame_set_fullscreen frame_set_fullscreen;
+        PFN_libdecor_frame_unset_fullscreen frame_unset_fullscreen;
+        PFN_libdecor_frame_map frame_map;
+        PFN_libdecor_frame_get_xdg_toplevel frame_get_xdg_toplevel;
+        PFN_libdecor_state_new state_new;
+        PFN_libdecor_state_free state_free;
+        PFN_libdecor_configuration_get_content_size configuration_get_content_size;
+        PFN_libdecor_configuration_get_window_state configuration_get_window_state;
+    } libdecor;
 
     EventLoopData eventLoopData;
     _GLFWWaylandDataOffer untyped_data_offers[8];

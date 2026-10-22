@@ -289,6 +289,7 @@ struct _GLFWinitconfig {
     } ns;
     struct {
         bool ime;
+        bool libdecor;
     } wl;
 };
 

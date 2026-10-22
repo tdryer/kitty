@@ -896,6 +896,15 @@ registryHandleGlobalRemove(void *data UNUSED, struct wl_registry *registry UNUSE
 
 static const struct wl_registry_listener registryListener = {registryHandleGlobal, registryHandleGlobalRemove};
 
+static void
+libdecorHandleError(struct libdecor *context UNUSED, enum libdecor_error error UNUSED, const char *message) {
+    _glfwInputError(GLFW_PLATFORM_ERROR, "libdecor: %s", message);
+}
+
+static const struct libdecor_interface libdecor_iface = {
+    .error = libdecorHandleError,
+};
+
 GLFWAPI GLFWColorScheme
 glfwGetCurrentSystemColorTheme(bool query_if_unintialized) {
     return glfw_current_system_color_theme(query_if_unintialized);
@@ -1006,6 +1015,78 @@ glfwWaylandMissingCapabilities(void) {
     return get_compositor_missing_capabilities();
 }
 
+static void
+terminate_libdecor(void) {
+    if (_glfw.wl.libdecor.context) {
+        libdecor_unref(_glfw.wl.libdecor.context);
+        _glfw.wl.libdecor.context = NULL;
+    }
+    if (_glfw.wl.libdecor.handle) {
+        _glfw_dlclose(_glfw.wl.libdecor.handle);
+        _glfw.wl.libdecor.handle = NULL;
+    }
+}
+
+static bool
+load_libdecor_function(void **dest, const char *name) {
+    *dest = _glfw_dlsym(_glfw.wl.libdecor.handle, name);
+    if (!*dest) _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: libdecor is missing the function %s, falling back to builtin decorations", name);
+    return *dest != NULL;
+}
+
+static bool
+load_libdecor(void) {
+    _glfw.wl.libdecor.handle = _glfw_dlopen("libdecor-0.so.0");
+    if (!_glfw.wl.libdecor.handle) {
+        _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Failed to load libdecor-0.so.0, falling back to builtin decorations");
+        return false;
+    }
+#define S(name) \
+    if (!load_libdecor_function((void **)&_glfw.wl.libdecor.name, "libdecor_" #name)) goto fail;
+    S(new)
+    S(unref)
+    S(dispatch)
+    S(decorate)
+    S(frame_unref)
+    S(frame_set_visibility)
+    S(frame_set_app_id)
+    S(frame_set_title)
+    S(frame_set_min_content_size)
+    S(frame_set_max_content_size)
+    S(frame_commit)
+    S(frame_set_minimized)
+    S(frame_set_maximized)
+    S(frame_unset_maximized)
+    S(frame_set_fullscreen)
+    S(frame_unset_fullscreen)
+    S(frame_map)
+    S(frame_get_xdg_toplevel)
+    S(state_new)
+    S(state_free)
+    S(configuration_get_content_size)
+    S(configuration_get_window_state)
+#undef S
+    // Added in libdecor 0.2.0, optional to support 0.1.x
+    *(void **)&_glfw.wl.libdecor.frame_get_min_content_size = _glfw_dlsym(_glfw.wl.libdecor.handle, "libdecor_frame_get_min_content_size");
+    return true;
+fail:
+    terminate_libdecor();
+    return false;
+}
+
+static void
+init_libdecor(void) {
+    if (!load_libdecor()) return;
+    _glfw.wl.libdecor.context = libdecor_new(_glfw.wl.display, &libdecor_iface);
+    if (!_glfw.wl.libdecor.context) {
+        _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Failed to initialize libdecor, falling back to builtin decorations");
+        terminate_libdecor();
+        return;
+    }
+    // Let libdecor and its plugin finish initializing
+    wl_display_roundtrip(_glfw.wl.display);
+}
+
 int
 _glfwPlatformInit(bool *supports_window_occlusion) {
     int i;
@@ -1081,6 +1162,7 @@ _glfwPlatformInit(bool *supports_window_occlusion) {
         _glfwInputError(GLFW_PLATFORM_ERROR, "Wayland: Failed to find Wayland SHM");
         return false;
     }
+    if (_glfw.hints.init.wl.libdecor) init_libdecor();
     if (_glfw.hints.init.debugRendering) {
         const char *mc = get_compositor_missing_capabilities();
         if (mc && mc[0]) debug("Compositor missing capabilities: %s\n", mc);
@@ -1099,6 +1181,12 @@ _glfwPlatformTerminate(void) {
             xdg_activation_token_v1_destroy(r->token);
         }
         free(_glfw.wl.activation_requests.array);
+    }
+    // Destroy the objects created by libdecor while still connected, it is
+    // unloaded after disconnecting, see the comment about EGL below
+    if (_glfw.wl.libdecor.context) {
+        libdecor_unref(_glfw.wl.libdecor.context);
+        _glfw.wl.libdecor.context = NULL;
     }
     glfw_xkb_release(&_glfw.wl.xkb);
     glfw_dbus_terminate(&_glfw.wl.dbus);
@@ -1180,6 +1268,7 @@ _glfwPlatformTerminate(void) {
         _glfw_dlclose(_glfw.wl.egl.handle);
         _glfw.wl.egl.handle = NULL;
     }
+    terminate_libdecor();
     finalizePollData(&_glfw.wl.eventLoopData);
     if (_glfw.wl.compositor_name) {
         free(_glfw.wl.compositor_name);
