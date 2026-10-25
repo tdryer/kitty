@@ -71,7 +71,7 @@ typedef struct _GLFWgtkBuffer {
 
 typedef struct _GLFWwindowGtk {
     GtkWidget *window, *toolbar_view, *header_bar, *view;
-    GtkIMContext *im_context;
+    GtkIMContext *im_context, *compose_context;
     GtkCssProvider *titlebar_css;
 
     // Size of the content area in logical pixels
@@ -97,7 +97,7 @@ typedef struct _GLFWwindowGtk {
     } frame;
 
     struct {
-        bool in_key_press;
+        bool in_key_press, composing;
         char *commit;
     } ime;
 
@@ -152,3 +152,4 @@ uint32_t _glfwGtkSymForKey(uint32_t key);
 int _glfwGtkModsFromState(GdkModifierType state, GdkDevice *device);
 void _glfwGtkHandleKeyEvent(_GLFWwindow *window, GdkEvent *event, bool is_press);
 void _glfwGtkSetupIME(_GLFWwindow *window);
+void _glfwGtkDestroyIME(_GLFWwindow *window);

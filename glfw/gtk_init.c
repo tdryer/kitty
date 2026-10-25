@@ -46,6 +46,13 @@ on_dark_changed(GObject *obj UNUSED, GParamSpec *pspec UNUSED, gpointer data UNU
     _glfwInputColorScheme(current_color_scheme(), false);
 }
 
+static gboolean
+report_initial_color_scheme(gpointer data UNUSED) {
+    _glfwGtkRestoreContext();
+    _glfwInputColorScheme(current_color_scheme(), true);
+    return G_SOURCE_REMOVE;
+}
+
 GLFWAPI GLFWColorScheme
 glfwGetCurrentSystemColorTheme(bool query_if_unintialized UNUSED) {
     return current_color_scheme();
@@ -100,9 +107,10 @@ _glfwPlatformInit(bool *supports_window_occlusion) {
     if (!_glfwGtkGLInit()) return false;
     _glfwPollMonitorsGtk();
     _glfwGtkWatchMonitors();
-    // Report the initial color scheme, the way the DBus based desktop
-    // settings code does for the other Linux backends.
-    _glfwInputColorScheme(current_color_scheme(), true);
+    // Report the initial color scheme once the main loop runs, by then kitty
+    // has set its callback. The DBus based desktop settings code of the other
+    // Linux backends also reports it asynchronously.
+    g_idle_add(report_initial_color_scheme, NULL);
     return true;
 }
 

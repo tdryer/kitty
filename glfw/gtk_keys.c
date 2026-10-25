@@ -383,11 +383,35 @@ _glfwGtkHandleKeyEvent(_GLFWwindow *window, GdkEvent *event, bool is_press) {
         free(window->gtk.ime.commit);
         window->gtk.ime.commit = NULL;
         window->gtk.ime.in_key_press = is_press;
-        handled_by_ime = gtk_im_context_filter_keypress(window->gtk.im_context, event);
+        // The Wayland input method leaves dead keys and compose to the
+        // compositor's input method, which may not be running. kitty always
+        // does them, with xkbcommon on the other backends, so a simple
+        // context gets the keys the input method does not want, and all keys
+        // while it is in the middle of a compose sequence.
+        GtkIMContext *compose = window->gtk.compose_context;
+        if (compose && window->gtk.ime.composing) {
+            handled_by_ime = gtk_im_context_filter_keypress(compose, event);
+        } else {
+            handled_by_ime = gtk_im_context_filter_keypress(window->gtk.im_context, event);
+            if (!handled_by_ime && !window->gtk.ime.commit && compose) handled_by_ime = gtk_im_context_filter_keypress(compose, event);
+        }
+        if (compose) {
+            char *preedit = NULL;
+            gtk_im_context_get_preedit_string(compose, &preedit, NULL, NULL);
+            window->gtk.ime.composing = preedit && preedit[0];
+            g_free(preedit);
+        }
         window->gtk.ime.in_key_press = false;
+        debug(
+            "im: %s handled: %d commit: %s ",
+            GTK_IS_IM_MULTICONTEXT(window->gtk.im_context) ? gtk_im_multicontext_get_context_id(GTK_IM_MULTICONTEXT(window->gtk.im_context)) : "simple",
+            handled_by_ime,
+            window->gtk.ime.commit ? window->gtk.ime.commit : "");
     }
     const char *committed = window->gtk.ime.commit;
-    if (handled_by_ime && !committed) {
+    // Releases always go to kitty, which ignores releases of keys whose
+    // press it did not get, for example dead keys.
+    if (handled_by_ime && !committed && is_press) {
         // A dead key, compose sequence or input method preedit in progress
         debug("handled by input method, ignoring\n");
         return;
@@ -493,18 +517,37 @@ im_preedit_end(GtkIMContext *ctx UNUSED, gpointer data) {
     send_text(window, NULL, GLFW_IME_PREEDIT_CHANGED);
 }
 
-void
-_glfwGtkSetupIME(_GLFWwindow *window) {
-    // With IME disabled, kitty still does compose and dead keys, which the
-    // simple context provides.
-    GtkIMContext *ctx = _glfw.hints.init.wl.ime ? gtk_im_multicontext_new() : gtk_im_context_simple_new();
+static GtkIMContext *
+create_im_context(_GLFWwindow *window, bool simple) {
+    GtkIMContext *ctx = simple ? gtk_im_context_simple_new() : gtk_im_multicontext_new();
     g_object_set(ctx, "input-purpose", GTK_INPUT_PURPOSE_TERMINAL, NULL);
     gtk_im_context_set_use_preedit(ctx, TRUE);
     gtk_im_context_set_client_widget(ctx, window->gtk.view);
     g_signal_connect(ctx, "commit", G_CALLBACK(im_commit), window);
     g_signal_connect(ctx, "preedit-changed", G_CALLBACK(im_preedit_changed), window);
     g_signal_connect(ctx, "preedit-end", G_CALLBACK(im_preedit_end), window);
-    window->gtk.im_context = ctx;
+    return ctx;
+}
+
+void
+_glfwGtkSetupIME(_GLFWwindow *window) {
+    // With IME disabled, kitty still does compose and dead keys, which the
+    // simple context provides.
+    window->gtk.im_context = create_im_context(window, !_glfw.hints.init.wl.ime);
+    if (_glfw.hints.init.wl.ime) window->gtk.compose_context = create_im_context(window, true);
+}
+
+void
+_glfwGtkDestroyIME(_GLFWwindow *window) {
+    GtkIMContext **contexts[] = {&window->gtk.im_context, &window->gtk.compose_context};
+    for (size_t i = 0; i < arraysz(contexts); i++) {
+        GtkIMContext *ctx = *contexts[i];
+        if (!ctx) continue;
+        g_signal_handlers_disconnect_by_data(ctx, window);
+        gtk_im_context_set_client_widget(ctx, NULL);
+        g_object_unref(ctx);
+        *contexts[i] = NULL;
+    }
 }
 
 void
@@ -514,10 +557,12 @@ _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
     switch (ev->type) {
         case GLFW_IME_UPDATE_FOCUS:
             debug("IME focus: %d\n", ev->focused);
-            if (ev->focused) gtk_im_context_focus_in(ctx);
-            else {
-                gtk_im_context_focus_out(ctx);
-                gtk_im_context_reset(ctx);
+            for (GtkIMContext *c = ctx; c; c = c == ctx ? w->gtk.compose_context : NULL) {
+                if (ev->focused) gtk_im_context_focus_in(c);
+                else {
+                    gtk_im_context_focus_out(c);
+                    gtk_im_context_reset(c);
+                }
             }
             break;
         case GLFW_IME_UPDATE_CURSOR_POSITION: {

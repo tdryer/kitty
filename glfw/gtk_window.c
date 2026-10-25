@@ -270,9 +270,18 @@ on_maximized(GObject *obj, GParamSpec *pspec UNUSED, gpointer data) {
 }
 
 static void
+update_top_bar(_GLFWwindow *window) {
+    // Fullscreen windows have no header bar, like other GNOME apps
+    bool reveal = window->decorated && !window->gtk.titlebar_hidden && !window->gtk.fullscreen;
+    adw_toolbar_view_set_reveal_top_bars(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), reveal);
+}
+
+static void
 on_fullscreened(GObject *obj, GParamSpec *pspec UNUSED, gpointer data) {
     _GLFWwindow *window = live_window(data);
-    if (window) window->gtk.fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(obj));
+    if (!window) return;
+    window->gtk.fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(obj));
+    update_top_bar(window);
 }
 
 // Input {{{
@@ -498,7 +507,7 @@ _glfwPlatformCreateWindow(
     window->gtk.view = GTK_WIDGET(view);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), window->gtk.view);
     adw_window_set_content(ADW_WINDOW(win), window->gtk.toolbar_view);
-    if (!wndconfig->decorated) adw_toolbar_view_set_reveal_top_bars(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), FALSE);
+    update_top_bar(window);
 
     g_signal_connect(window->gtk.view, "realize", G_CALLBACK(on_view_realize), window);
     g_signal_connect(window->gtk.view, "map", G_CALLBACK(on_view_map), window);
@@ -546,11 +555,7 @@ _glfwPlatformDestroyWindow(_GLFWwindow *window) {
     if (window->gtk.surface && window->gtk.scale_handler) g_signal_handler_disconnect(window->gtk.surface, window->gtk.scale_handler);
     window->gtk.surface = NULL;
     window->gtk.scale_handler = 0;
-    if (window->gtk.im_context) {
-        g_signal_handlers_disconnect_by_data(window->gtk.im_context, window);
-        gtk_im_context_set_client_widget(window->gtk.im_context, NULL);
-        g_clear_object(&window->gtk.im_context);
-    }
+    _glfwGtkDestroyIME(window);
     if (window->context.destroy) window->context.destroy(window);
     if (window->gtk.titlebar_css) {
         gtk_style_context_remove_provider_for_display(_glfw.gtk.display, GTK_STYLE_PROVIDER(window->gtk.titlebar_css));
@@ -716,8 +721,9 @@ _glfwPlatformSetWindowResizable(_GLFWwindow *window, bool enabled) {
 }
 
 void
-_glfwPlatformSetWindowDecorated(_GLFWwindow *window, bool enabled) {
-    adw_toolbar_view_set_reveal_top_bars(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), enabled && !window->gtk.titlebar_hidden);
+_glfwPlatformSetWindowDecorated(_GLFWwindow *window, bool enabled UNUSED) {
+    // window->decorated is already updated
+    update_top_bar(window);
 }
 
 void
@@ -1211,7 +1217,7 @@ GLFWAPI void
 glfwWaylandSetTitlebarHidden(GLFWwindow *handle, bool hidden) {
     _GLFWwindow *window = (_GLFWwindow *)handle;
     window->gtk.titlebar_hidden = hidden;
-    adw_toolbar_view_set_reveal_top_bars(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), !hidden && window->decorated);
+    update_top_bar(window);
 }
 
 static GLFWwaylandinitialsizefun initial_window_size_callback = NULL;
