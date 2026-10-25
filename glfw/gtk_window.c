@@ -65,8 +65,21 @@ kitty_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
         const double scale = self->texture_scale > 0 ? self->texture_scale : 1;
         tw = (float)(gdk_texture_get_width(self->texture) / scale);
         th = (float)(gdk_texture_get_height(self->texture) / scale);
-        // GL textures have their origin at the bottom left
         gtk_snapshot_save(snapshot);
+        // With fractional scales the widget can start in the middle of a
+        // device pixel, for example because the header bar is 47 logical
+        // pixels high, and GSK then resamples the texture, blurring the text.
+        // Shift the texture so it starts on a device pixel.
+        GtkNative *native = gtk_widget_get_native(widget);
+        graphene_point_t origin;
+        if (native && gtk_widget_compute_point(widget, GTK_WIDGET(native), &GRAPHENE_POINT_INIT(0, 0), &origin)) {
+            double sx = 0, sy = 0;
+            gtk_native_get_surface_transform(native, &sx, &sy);
+            const double dx = (origin.x + sx) * scale, dy = (origin.y + sy) * scale;
+            const float ox = (float)((dx - floor(dx)) / scale), oy = (float)((dy - floor(dy)) / scale);
+            if (ox > 0 || oy > 0) gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(-ox, -oy));
+        }
+        // GL textures have their origin at the bottom left
         gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(0, th));
         gtk_snapshot_scale(snapshot, 1, -1);
         gtk_snapshot_append_scaled_texture(snapshot, self->texture, GSK_SCALING_FILTER_NEAREST, &GRAPHENE_RECT_INIT(0, 0, tw, th));
