@@ -140,6 +140,9 @@ load_glfw(const char* path) {
     *(void **) (&glfwAreSwapsAllowed_impl) = dlsym(handle, "glfwAreSwapsAllowed");
     if (glfwAreSwapsAllowed_impl == NULL) fail("Failed to load glfw function glfwAreSwapsAllowed with error: %s", dlerror());
 
+    *(void **) (&glfwGetWindowDefaultFramebuffer_impl) = dlsym(handle, "glfwGetWindowDefaultFramebuffer");
+    if (glfwGetWindowDefaultFramebuffer_impl == NULL) fail("Failed to load glfw function glfwGetWindowDefaultFramebuffer with error: %s", dlerror());
+
     *(void **) (&glfwGetLayerShellConfig_impl) = dlsym(handle, "glfwGetLayerShellConfig");
     if (glfwGetLayerShellConfig_impl == NULL) fail("Failed to load glfw function glfwGetLayerShellConfig with error: %s", dlerror());
 

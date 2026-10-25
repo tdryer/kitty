@@ -3098,6 +3098,13 @@ GLFWAPI GLFWwindow *glfwCreateWindow(int width, int height, const char *title, G
 GLFWAPI bool glfwToggleFullscreen(GLFWwindow *window, unsigned int flags);
 GLFWAPI bool glfwIsFullscreen(GLFWwindow *window, unsigned int flags);
 GLFWAPI bool glfwAreSwapsAllowed(const GLFWwindow *window);
+/*! @brief Returns the framebuffer object that is the window's default framebuffer.
+ *
+ *  This is 0, except for backends that render windows offscreen, where it is
+ *  the framebuffer object to bind instead of 0 to draw to the window. The
+ *  window's context must be current.
+ */
+GLFWAPI unsigned glfwGetWindowDefaultFramebuffer(GLFWwindow *window);
 GLFWAPI const GLFWLayerShellConfig *glfwGetLayerShellConfig(GLFWwindow *handle);
 GLFWAPI bool glfwSetLayerShellConfig(GLFWwindow *handle, const GLFWLayerShellConfig *value);
 

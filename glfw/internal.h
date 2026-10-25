@@ -203,6 +203,8 @@ typedef VkResult(APIENTRY *PFN_vkEnumerateInstanceExtensionProperties)(const cha
 #include "x11_platform.h"
 #elif defined(_GLFW_WAYLAND)
 #include "wl_platform.h"
+#elif defined(_GLFW_GTK)
+#include "gtk_platform.h"
 #elif defined(_GLFW_OSMESA)
 #include "null_platform.h"
 #else
@@ -445,7 +447,7 @@ struct _GLFWwindow {
     bool rawMouseMotion;
 
     _GLFWcontext context;
-#ifdef _GLFW_WAYLAND
+#if defined(_GLFW_WAYLAND) || defined(_GLFW_GTK)
     bool swaps_disallowed;
 #else
     const bool swaps_disallowed;

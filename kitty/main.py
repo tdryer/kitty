@@ -22,6 +22,7 @@ from .constants import (
     appname,
     beam_cursor_data_file,
     clear_handled_signals,
+    glfw_module_override,
     glfw_path,
     is_macos,
     is_quick_access_terminal_app,
@@ -112,6 +113,7 @@ def init_glfw_module(glfw_module: str = 'wayland', debug_keyboard: bool = False,
 
 def init_glfw(opts: Options, debug_keyboard: bool = False, debug_rendering: bool = False) -> str:
     glfw_module = 'cocoa' if is_macos else ('wayland' if is_wayland(opts) else 'x11')
+    glfw_module = glfw_module_override(glfw_module)
     init_glfw_module(glfw_module, debug_keyboard, debug_rendering, wayland_enable_ime=opts.wayland_enable_ime)
     return glfw_module
 

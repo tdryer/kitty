@@ -1213,6 +1213,17 @@ def glfw_init_env(
             ans.cflags.extend(pkg_config(dep, '--cflags-only-I'))
             ans.ldpaths.extend(pkg_config(dep, '--libs'))
 
+    elif module == 'gtk':
+        at_least_version('gtk4', 4, 22)
+        at_least_version('libadwaita-1', 1, 9)
+        ans.cflags.append('-pthread')
+        ans.ldpaths.extend('-pthread -lm -ldl'.split())
+        # GTK headers and the GObject type macros are not -pedantic clean
+        ans.cflags.append('-Wno-pedantic')
+        for dep in 'gtk4 libadwaita-1 gio-unix-2.0 egl xkbcommon'.split():
+            ans.cflags.extend('-isystem' + x[2:] for x in pkg_config(dep, '--cflags-only-I'))
+            ans.ldpaths.extend(pkg_config(dep, '--libs'))
+
     elif module == 'cocoa':
         ans.cppflags.append('-DGL_SILENCE_DEPRECATION')
         for f_ in 'Cocoa IOKit CoreFoundation CoreVideo UniformTypeIdentifiers'.split():
@@ -1271,15 +1282,15 @@ def build_wayland_protocols(
 
 
 def compile_glfw(compilation_database: CompilationDatabase, build_dsym: bool = False) -> None:
-    modules = 'cocoa' if is_macos else 'x11 wayland'
+    modules = 'cocoa' if is_macos else 'x11 wayland gtk'
     for module in modules.split():
         try:
             genv = glfw_init_env(env, pkg_config, pkg_version, at_least_version, test_compile, module)
         except SystemExit as err:
-            if module != 'wayland':
+            if module not in ('wayland', 'gtk'):
                 raise
             print(err, file=sys.stderr)
-            print(error('Disabling building of wayland backend'), file=sys.stderr)
+            print(error(f'Disabling building of {module} backend'), file=sys.stderr)
             continue
         sources = [os.path.join('glfw', x) for x in genv.sources]
         all_headers = [os.path.join('glfw', x) for x in genv.all_headers]

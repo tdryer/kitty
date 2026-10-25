@@ -259,7 +259,7 @@ glfwCreateWindow(int width, int height, const char *title, GLFWmonitor *monitor,
     } else {
         if (wndconfig.visible) {
             _glfwPlatformShowWindow(window, false);
-#ifndef _GLFW_WAYLAND
+#if !defined(_GLFW_WAYLAND) && !defined(_GLFW_GTK)
             if (wndconfig.focused) _glfwPlatformFocusWindow(window);
 #endif
         }
@@ -702,7 +702,7 @@ glfwShowWindow(GLFWwindow *handle, bool move_to_active_screen) {
 
     _glfwPlatformShowWindow(window, move_to_active_screen);
 
-#ifndef _GLFW_WAYLAND
+#if !defined(_GLFW_WAYLAND) && !defined(_GLFW_GTK)
     if (window->focusOnShow) _glfwPlatformFocusWindow(window);
 #endif
 }
@@ -883,6 +883,14 @@ GLFWAPI bool
 glfwAreSwapsAllowed(const GLFWwindow *wh) {
     return !(((_GLFWwindow *)wh)->swaps_disallowed);
 }
+
+#ifndef _GLFW_GTK
+GLFWAPI unsigned
+glfwGetWindowDefaultFramebuffer(GLFWwindow *handle UNUSED) {
+    // The default framebuffer of the window's context is framebuffer 0
+    return 0;
+}
+#endif
 
 GLFWAPI void
 glfwSetWindowUserPointer(GLFWwindow *handle, void *pointer) {

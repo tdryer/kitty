@@ -35,6 +35,24 @@
       "window.c"
     ]
   },
+  "gtk": {
+    "headers": [
+      "gtk_platform.h",
+      "posix_thread.h",
+      "null_joystick.h",
+      "egl_context.h",
+      "osmesa_context.h"
+    ],
+    "sources": [
+      "gtk_init.c",
+      "gtk_monitor.c",
+      "gtk_window.c",
+      "gtk_keys.c",
+      "posix_thread.c",
+      "null_joystick.c",
+      "momentum-scroll.c"
+    ]
+  },
   "osmesa": {
     "headers": [
       "null_platform.h",

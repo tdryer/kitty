@@ -1045,7 +1045,7 @@ glfwUpdateIMEState(GLFWwindow *handle, const GLFWIMEUpdateEvent *ev) {
     assert(window != NULL);
 
     _GLFW_REQUIRE_INIT();
-#if defined(_GLFW_X11) || defined(_GLFW_WAYLAND) || defined(_GLFW_COCOA)
+#if defined(_GLFW_X11) || defined(_GLFW_WAYLAND) || defined(_GLFW_COCOA) || defined(_GLFW_GTK)
     _glfwPlatformUpdateIMEState(window, ev);
 #else
     (void)window;

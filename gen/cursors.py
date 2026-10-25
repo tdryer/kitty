@@ -121,6 +121,7 @@ def main(args: list[str] = sys.argv) -> None:
     patch_file('glfw/wl_window.c', 'glfw to wayland mapping', '\n'.join(f'        C({g}, {x});' for g, x in glfw_wayland.items()))
     patch_file('glfw/wl_window.c', 'glfw to xc mapping', '\n'.join(f'        C({g}, {x});' for g, x in glfw_xc_map.items()))
     patch_file('glfw/x11_window.c', 'glfw to xc mapping', '\n'.join(f'        {x}' for x in glfw_xfont_map))
+    patch_file('glfw/gtk_window.c', 'glfw to css mapping', '\n'.join(f'        C({g}, "{c}");' for g, c in glfw_css_map.items()))
     patch_file('kitty/data-types.h', 'mouse shapes', '\n'.join(f'    {x},' for x in enum_to_glfw_map))
     patch_file(
         'kitty/options/utils.py',

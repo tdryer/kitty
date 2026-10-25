@@ -369,6 +369,9 @@ def generate_xkb_mapping() -> None:
         rlines.append(f'        case GLFW_FKEY_{name.upper()}: return XKB_KEY_{xkb};')
     patch_file('glfw/xkb_glfw.c', 'xkb to glfw', '\n'.join(lines))
     patch_file('glfw/xkb_glfw.c', 'glfw to xkb', '\n'.join(rlines))
+    # GDK keyvals are xkb keysyms, so the GTK backend uses the same tables
+    patch_file('glfw/gtk_keys.c', 'xkb to glfw', '\n'.join(lines))
+    patch_file('glfw/gtk_keys.c', 'glfw to xkb', '\n'.join(rlines))
 
 
 def generate_functional_table() -> None:

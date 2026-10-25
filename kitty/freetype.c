@@ -1689,7 +1689,10 @@ PyTypeObject Face_Type = {
 
 static void
 free_freetype(void) {
-    cairo_debug_reset_static_data();
+    // GTK keeps cairo objects alive until exit, so resetting the static data
+    // aborts with the GTK GLFW backend
+    const char *backend = getenv("KITTY_GLFW_BACKEND");
+    if (!backend || strcmp(backend, "gtk") != 0) cairo_debug_reset_static_data();
     FT_Done_FreeType(library);
 }
 

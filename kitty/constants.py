@@ -219,6 +219,13 @@ def glfw_path(module: str) -> str:
     return os.path.join(extensions_dir, f'{prefix}glfw-{module}.so')
 
 
+def glfw_module_override(glfw_module: str) -> str:
+    # KITTY_GLFW_BACKEND=gtk runs kitty in a GTK 4 window, on Wayland only
+    if glfw_module == 'wayland' and os.environ.get('KITTY_GLFW_BACKEND') == 'gtk' and os.path.exists(glfw_path('gtk')):
+        return 'gtk'
+    return glfw_module
+
+
 def detect_if_wayland_ok() -> bool:
     if not os.environ.get('WAYLAND_DISPLAY') and not os.environ.get('WAYLAND_SOCKET'):
         return False

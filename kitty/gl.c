@@ -108,7 +108,10 @@ static GLuint output_framebuffer = 0;
 
 void
 bind_framebuffer_for_output(unsigned fbid) {
-    glBindFramebuffer(GL_FRAMEBUFFER, fbid ? fbid : output_framebuffer);
+    if (!fbid) fbid = output_framebuffer;
+    // Some GLFW backends render the window into an offscreen framebuffer
+    if (!fbid) fbid = glfwGetWindowDefaultFramebuffer(glfwGetCurrentContext());
+    glBindFramebuffer(GL_FRAMEBUFFER, fbid);
 }
 
 void

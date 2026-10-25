@@ -2105,6 +2105,10 @@ typedef bool (*glfwAreSwapsAllowed_func)(const GLFWwindow*);
 GFW_EXTERN glfwAreSwapsAllowed_func glfwAreSwapsAllowed_impl;
 #define glfwAreSwapsAllowed glfwAreSwapsAllowed_impl
 
+typedef unsigned (*glfwGetWindowDefaultFramebuffer_func)(GLFWwindow*);
+GFW_EXTERN glfwGetWindowDefaultFramebuffer_func glfwGetWindowDefaultFramebuffer_impl;
+#define glfwGetWindowDefaultFramebuffer glfwGetWindowDefaultFramebuffer_impl
+
 typedef const GLFWLayerShellConfig* (*glfwGetLayerShellConfig_func)(GLFWwindow*);
 GFW_EXTERN glfwGetLayerShellConfig_func glfwGetLayerShellConfig_impl;
 #define glfwGetLayerShellConfig glfwGetLayerShellConfig_impl
