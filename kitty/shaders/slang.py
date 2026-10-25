@@ -1381,9 +1381,28 @@ def compile_builtin_shaders(build_dir: str, dest_dir: str, parallel_run: Paralle
     write_glsl_metadata(dest_dir)
 
 
+# slangc 2026.1.1 (Ubuntu 26.04's slang-compiler package, which reports its
+# version as just "slang-compiler") emits GLSL with C-style array initializers
+# that Mesa rejects in #version 140 shaders. 2026.14.1 is known to work.
+MIN_SLANGC_VERSION = (2026, 14)
+
+
+def check_slangc_version() -> None:
+    v = slangc_version()
+    m = re.match(r'(\d+)\.(\d+)', v)
+    if m is None or (int(m.group(1)), int(m.group(2))) < MIN_SLANGC_VERSION:
+        exe = shutil.which(slangc()[0]) or slangc()[0]
+        raise SystemExit(
+            f'The shader slang compiler {exe} reports version {v!r}, but at least'
+            f' {".".join(map(str, MIN_SLANGC_VERSION))} is needed, older versions generate shaders that fail to compile.'
+            ' Put a newer slangc first in PATH or point the SLANGC environment variable at it.'
+        )
+
+
 def main() -> None:
     if not shutil.which(slangc()[0]):
         raise SystemExit(f'The shader slang compiler ({slangc()[0]}) not in PATH: {os.environ.get("PATH")}')
+    check_slangc_version()
     setup = runpy.run_path('setup.py')
     verbose = sys.argv[-3] == 'verbose'
     Command = setup['Command']
