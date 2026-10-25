@@ -409,7 +409,10 @@ _glfwGtkHandleKeyEvent(_GLFWwindow *window, GdkEvent *event, bool is_press) {
     }
 
     GLFWkeyevent glfw_ev = {.action = is_press ? GLFW_PRESS : GLFW_RELEASE, .native_key_id = keycode};
-    if (is_press) {
+    // Like xkb_glfw.c, keys pressed with these modifiers have no text, even
+    // though GTK input methods commit text for them.
+    const bool text_allowed = ((GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER | GLFW_MOD_HYPER | GLFW_MOD_META) & mods) == 0;
+    if (is_press && text_allowed) {
         if (committed) {
             // Text from the input method, which also does dead keys and compose
             strncpy(key_text, committed, sizeof(key_text) - 1);
@@ -421,7 +424,7 @@ _glfwGtkHandleKeyEvent(_GLFWwindow *window, GdkEvent *event, bool is_press) {
                 guint composed = gdk_unicode_to_keyval(first);
                 if (composed) sym = composed;
             }
-        } else if (((GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER | GLFW_MOD_HYPER | GLFW_MOD_META) & mods) == 0) {
+        } else {
             // No input method, or it did not want the key
             gunichar ch = gdk_keyval_to_unicode(event_sym);
             if (ch) key_text[g_unichar_to_utf8(ch, key_text)] = 0;
