@@ -271,6 +271,8 @@ on_maximized(GObject *obj, GParamSpec *pspec UNUSED, gpointer data) {
 
 static void
 update_top_bar(_GLFWwindow *window) {
+    // hide_window_decorations=yes means no CSD shadow and rounded corners either
+    gtk_window_set_decorated(GTK_WINDOW(window->gtk.window), window->decorated);
     // Fullscreen windows have no header bar, like other GNOME apps
     bool reveal = window->decorated && !window->gtk.titlebar_hidden && !window->gtk.fullscreen;
     adw_toolbar_view_set_reveal_top_bars(ADW_TOOLBAR_VIEW(window->gtk.toolbar_view), reveal);
@@ -445,7 +447,10 @@ ensure_global_css(void) {
     if (global_css) return;
     global_css = gtk_css_provider_new();
     gtk_css_provider_load_from_string(
-        global_css, "window.kitty-transparent, window.kitty-transparent toolbarview, window.kitty-transparent kittyview { background: transparent; }\n");
+        global_css,
+        "window.kitty-transparent, window.kitty-transparent kittyview { background: transparent; }\n"
+        "window.kitty-transparent headerbar { background-color: var(--headerbar-bg-color); }\n"
+        "window.kitty-transparent headerbar:backdrop { background-color: var(--headerbar-backdrop-color); }\n");
     gtk_style_context_add_provider_for_display(_glfw.gtk.display, GTK_STYLE_PROVIDER(global_css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
