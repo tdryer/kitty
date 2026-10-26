@@ -333,6 +333,30 @@ window_close_callback(GLFWwindow *window) {
 }
 
 static void
+titlebar_menu_callback(GLFWwindow *window, const char *action) {
+    if (!set_callback_window(window)) return;
+    if (is_window_ready_for_callbacks()) {
+        call_boss(combine, "s", action);
+        request_tick_callback();
+    }
+    global_state.callback_os_window = NULL;
+}
+
+static void
+setup_titlebar_menu(GLFWwindow *window) {
+    // Only the GTK backend has a titlebar menu. NULL labels start a new section.
+    static const char *const labels[] = {"New Tab", "New Window", NULL, "Split Right", "Split Down"};
+    static const char *const actions[] = {
+        "new_tab",
+        "new_os_window",
+        NULL,
+        "combine : goto_layout splits : launch --location=vsplit",
+        "combine : goto_layout splits : launch --location=hsplit",
+    };
+    if (glfwGtkSetTitlebarMenu) glfwGtkSetTitlebarMenu(window, labels, actions, arraysz(labels), titlebar_menu_callback);
+}
+
+static void
 window_occlusion_callback(GLFWwindow *window, bool occluded) {
     if (!set_callback_window(window)) return;
     debug("OSWindow %llu occlusion state changed, occluded: %d\n", global_state.callback_os_window->id, occluded);
@@ -2529,6 +2553,7 @@ create_os_window(PyObject UNUSED *self, PyObject *args, PyObject *kw) {
     glfwSetWindowPosCallback(glfw_window, window_pos_callback);
     // missing size callback
     glfwSetWindowCloseCallback(glfw_window, window_close_callback);
+    if (!lsc) setup_titlebar_menu(glfw_window);
     glfwSetWindowRefreshCallback(glfw_window, refresh_callback);
     glfwSetWindowFocusCallback(glfw_window, window_focus_callback);
     glfwSetWindowOcclusionCallback(glfw_window, window_occlusion_callback);

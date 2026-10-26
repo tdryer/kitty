@@ -1941,6 +1941,7 @@ typedef void (*GLFWwaylandframecallbackfunc)(unsigned long long id);
 typedef void (*GLFWDBusnotificationcreatedfun)(unsigned long long, uint32_t, void*);
 typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char*);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
+typedef void (*GLFWgtkmenuactionfun)(GLFWwindow*, const char*);
 typedef int (*glfwInit_func)(monotonic_t, bool*);
 GFW_EXTERN glfwInit_func glfwInit_impl;
 #define glfwInit glfwInit_impl
@@ -2652,6 +2653,10 @@ GFW_EXTERN glfwWaylandSetInitialWindowSizeCallback_func glfwWaylandSetInitialWin
 typedef void (*glfwWaylandRedrawCSDWindowTitle_func)(GLFWwindow*);
 GFW_EXTERN glfwWaylandRedrawCSDWindowTitle_func glfwWaylandRedrawCSDWindowTitle_impl;
 #define glfwWaylandRedrawCSDWindowTitle glfwWaylandRedrawCSDWindowTitle_impl
+
+typedef void (*glfwGtkSetTitlebarMenu_func)(GLFWwindow*, const char * const*, const char * const*, size_t, GLFWgtkmenuactionfun);
+GFW_EXTERN glfwGtkSetTitlebarMenu_func glfwGtkSetTitlebarMenu_impl;
+#define glfwGtkSetTitlebarMenu glfwGtkSetTitlebarMenu_impl
 
 typedef bool (*glfwWaylandIsWindowFullyCreated_func)(GLFWwindow*);
 GFW_EXTERN glfwWaylandIsWindowFullyCreated_func glfwWaylandIsWindowFullyCreated_impl;

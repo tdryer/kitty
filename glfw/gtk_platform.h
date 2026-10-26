@@ -56,6 +56,7 @@ typedef void (*GLFWwaylandframecallbackfunc)(unsigned long long id);
 typedef void (*GLFWDBusnotificationcreatedfun)(unsigned long long, uint32_t, void *);
 typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char *);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
+typedef void (*GLFWgtkmenuactionfun)(GLFWwindow *, const char *);
 
 // An offscreen color buffer kitty renders into. It is heap allocated because
 // GDK can hold on to the texture wrapping it after the window is gone.
@@ -70,7 +71,8 @@ typedef struct _GLFWgtkBuffer {
 } _GLFWgtkBuffer;
 
 typedef struct _GLFWwindowGtk {
-    GtkWidget *window, *toolbar_view, *header_bar, *view;
+    GtkWidget *window, *toolbar_view, *header_bar, *view, *menu_button;
+    GLFWgtkmenuactionfun menu_callback;
     GtkIMContext *im_context, *compose_context;
     GtkCssProvider *titlebar_css;
 

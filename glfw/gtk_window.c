@@ -575,7 +575,7 @@ _glfwPlatformDestroyWindow(_GLFWwindow *window) {
         g_signal_handlers_disconnect_by_data(window->gtk.window, window);
         gtk_window_destroy(GTK_WINDOW(window->gtk.window));
     }
-    window->gtk.window = window->gtk.view = window->gtk.header_bar = window->gtk.toolbar_view = NULL;
+    window->gtk.window = window->gtk.view = window->gtk.header_bar = window->gtk.toolbar_view = window->gtk.menu_button = NULL;
     free(window->gtk.title);
     window->gtk.title = NULL;
     free(window->gtk.ime.commit);
@@ -1227,6 +1227,72 @@ glfwWaylandSetTitlebarHidden(GLFWwindow *handle, bool hidden) {
     _GLFWwindow *window = (_GLFWwindow *)handle;
     window->gtk.titlebar_hidden = hidden;
     update_top_bar(window);
+}
+
+static void
+on_menu_action(GSimpleAction *action UNUSED, GVariant *parameter, gpointer data) {
+    _GLFWwindow *window = live_window(data);
+    if (!window || input_blocked() || !window->gtk.menu_callback) return;
+    _glfwGtkRestoreContext();
+    window->gtk.menu_callback((GLFWwindow *)window, g_variant_get_string(parameter, NULL));
+}
+
+static void
+on_menu_closed(GtkPopover *popover UNUSED, gpointer data) {
+    // GTK gives the focus back to the menu button, the terminal should have it
+    _GLFWwindow *window = live_window(data);
+    if (window && window->gtk.view) gtk_widget_grab_focus(window->gtk.view);
+}
+
+// Shows a menu button at the end of the header bar. A NULL label starts a new
+// section. Activating an item calls callback with its action string.
+GLFWAPI void
+glfwGtkSetTitlebarMenu(GLFWwindow *handle, const char *const *labels, const char *const *actions, size_t count, GLFWgtkmenuactionfun callback) {
+    _GLFWwindow *window = (_GLFWwindow *)handle;
+    if (!window->gtk.header_bar) return;
+    if (window->gtk.menu_button) {
+        adw_header_bar_remove(ADW_HEADER_BAR(window->gtk.header_bar), window->gtk.menu_button);
+        window->gtk.menu_button = NULL;
+    }
+    window->gtk.menu_callback = callback;
+    if (!count || !callback) return;
+
+    GSimpleActionGroup *group = g_simple_action_group_new();
+    GSimpleAction *action = g_simple_action_new("menu", G_VARIANT_TYPE_STRING);
+    g_signal_connect(action, "activate", G_CALLBACK(on_menu_action), window);
+    g_action_map_add_action(G_ACTION_MAP(group), G_ACTION(action));
+    g_object_unref(action);
+    gtk_widget_insert_action_group(window->gtk.window, "kitty", G_ACTION_GROUP(group));
+    g_object_unref(group);
+
+    GMenu *menu = g_menu_new(), *section = g_menu_new();
+    for (size_t i = 0; i < count; i++) {
+        if (!labels[i]) {
+            if (g_menu_model_get_n_items(G_MENU_MODEL(section))) g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+            g_object_unref(section);
+            section = g_menu_new();
+            continue;
+        }
+        GMenuItem *item = g_menu_item_new(labels[i], NULL);
+        g_menu_item_set_action_and_target_value(item, "kitty.menu", g_variant_new_string(actions[i]));
+        g_menu_append_item(section, item);
+        g_object_unref(item);
+    }
+    if (g_menu_model_get_n_items(G_MENU_MODEL(section))) g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+    g_object_unref(section);
+
+    GtkWidget *button = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(button), "open-menu-symbolic");
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(button), G_MENU_MODEL(menu));
+    gtk_menu_button_set_primary(GTK_MENU_BUTTON(button), TRUE);
+    gtk_widget_set_tooltip_text(button, "Main Menu");
+    // Keyboard focus stays with the terminal
+    gtk_widget_set_focus_on_click(button, FALSE);
+    g_object_unref(menu);
+    GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(button));
+    if (popover) g_signal_connect(popover, "closed", G_CALLBACK(on_menu_closed), window);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(window->gtk.header_bar), button);
+    window->gtk.menu_button = button;
 }
 
 static GLFWwaylandinitialsizefun initial_window_size_callback = NULL;
