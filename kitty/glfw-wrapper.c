@@ -554,6 +554,9 @@ load_glfw(const char* path) {
     *(void **) (&glfwGtkSetTitlebarMenu_impl) = dlsym(handle, "glfwGtkSetTitlebarMenu");
     if (glfwGtkSetTitlebarMenu_impl == NULL) dlerror(); // clear error indicator
 
+    *(void **) (&glfwGtkSetTitlebarMenuItemLabel_impl) = dlsym(handle, "glfwGtkSetTitlebarMenuItemLabel");
+    if (glfwGtkSetTitlebarMenuItemLabel_impl == NULL) dlerror(); // clear error indicator
+
     *(void **) (&glfwWaylandIsWindowFullyCreated_impl) = dlsym(handle, "glfwWaylandIsWindowFullyCreated");
     if (glfwWaylandIsWindowFullyCreated_impl == NULL) dlerror(); // clear error indicator
 

@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager, suppress
 from gettext import gettext as _
+from typing import TYPE_CHECKING, NamedTuple
 
 from . import logout_session
 from .boss import Boss
@@ -81,6 +82,9 @@ from .utils import (
     safe_mtime,
     startup_notification_handler,
 )
+
+if TYPE_CHECKING:
+    from .fast_data_types import TitlebarMenuItemSpec
 
 
 def set_custom_ibeam_cursor() -> None:
@@ -271,20 +275,67 @@ def _is_split_action(definition: str, location: str) -> bool:
     return spec.opts.type == 'window' and spec.opts.location == location
 
 
-def _split_item(label: str, location: str) -> tuple[str, str, Callable[[str], bool]]:
+def _font_size_change(definition: str) -> str:
+    # 'in', 'out' or 'reset' for a change_font_size action, else ''
+    parts = definition.split()
+    if len(parts) != 3 or parts[0] != 'change_font_size':
+        return ''
+    op = parts[2][0] if parts[2][0] in '+-*/' else ''
+    try:
+        amt = float(parts[2][len(op):])
+    except ValueError:
+        return ''
+    if not op:
+        return 'reset' if amt == 0 else ''
+    if op == '+' or (op == '*' and amt > 1) or (op == '/' and 0 < amt < 1):
+        return 'in'
+    if op == '-' or (op == '/' and amt > 1) or (op == '*' and 0 < amt < 1):
+        return 'out'
+    return ''
+
+
+class TitlebarMenuItem(NamedTuple):
+    # The action is run when no shortcut is mapped and matches tests for the
+    # mapped actions that do the same thing. When one is mapped, the menu item
+    # shows its shortcut and runs its action, so the two always behave the
+    # same. See GLFWgtkmenuitem for the rest.
+    label: str
+    action: str
+    matches: Callable[[str], bool]
+    is_inline: bool = False
+    icon: str | None = None
+    tooltip: str | None = None
+
+
+def _split_item(label: str, location: str) -> TitlebarMenuItem:
     action = f'combine : goto_layout splits : launch --location={location}'
-    return label, action, lambda d: d == action or _is_split_action(d, location)
+    return TitlebarMenuItem(label, action, lambda d: d == action or _is_split_action(d, location))
 
 
-# Label, the action run when no shortcut is mapped and a test for the mapped
-# actions that do the same thing. When one is mapped, the menu item shows its
-# shortcut and runs its action, so the two always behave the same.
-titlebar_menu_items: tuple[tuple[str, str, Callable[[str], bool]] | None, ...] = (
-    ('New Tab', 'new_tab', lambda d: d in ('new_tab', 'new_tab_with_cwd')),
-    ('New Window', 'new_os_window', lambda d: d in ('new_os_window', 'new_os_window_with_cwd')),
-    None,
-    _split_item('Split Right', 'vsplit'),
-    _split_item('Split Down', 'hsplit'),
+def _zoom_item(label: str, change: str, amt: str, icon: str | None = None, tooltip: str | None = None) -> TitlebarMenuItem:
+    return TitlebarMenuItem(label, f'change_font_size all {amt}', lambda d: _font_size_change(d) == change, True, icon, tooltip)
+
+
+ZOOM_LABEL = '100%'  # replaced by the font size of the window
+# The items of the menus at the start and end of the title bar, None starts a
+# new section. The first item of the start menu is its button's action.
+titlebar_menus: tuple[tuple[TitlebarMenuItem | None, ...], tuple[TitlebarMenuItem | None, ...]] = (
+    (
+        TitlebarMenuItem('New Tab', 'new_tab', lambda d: d in ('new_tab', 'new_tab_with_cwd'), icon='tab-new-symbolic'),
+        TitlebarMenuItem('New Window', 'new_os_window', lambda d: d in ('new_os_window', 'new_os_window_with_cwd')),
+        None,
+        _split_item('Split Right', 'vsplit'),
+        _split_item('Split Down', 'hsplit'),
+    ), (
+        _zoom_item('Zoom Out', 'out', '-2.0', icon='zoom-out-symbolic'),
+        _zoom_item(ZOOM_LABEL, 'reset', '0', tooltip='Reset Zoom'),
+        _zoom_item('Zoom In', 'in', '+2.0', icon='zoom-in-symbolic'),
+        None,
+        TitlebarMenuItem('Rename Tab…', 'set_tab_title', lambda d: d == 'set_tab_title'),
+        TitlebarMenuItem('Resize Window…', 'start_resizing_window', lambda d: d == 'start_resizing_window'),
+        None,
+        TitlebarMenuItem('Reload Config', 'load_config_file', lambda d: d == 'load_config_file'),
+    ),
 )
 
 
@@ -303,24 +354,30 @@ def _titlebar_menu_shortcuts(opts: Options) -> list[tuple[str, tuple[SingleKey, 
 
 
 def set_titlebar_menu_from_opts(opts: Options) -> None:
-    # Only the GTK backend shows this menu, in the window's title bar
+    # Only the GTK backend shows these menus, in the window's title bar
     if is_macos:
         return
     mapped = _titlebar_menu_shortcuts(opts)
-    items: list[tuple[str | None, str | None, tuple[tuple[int, int, bool], ...]]] = []
-    for entry in titlebar_menu_items:
-        if entry is None:
-            items.append((None, None, ()))
-            continue
-        label, action, matches = entry
-        keys: tuple[tuple[int, int, bool], ...] = ()
-        # Later definitions take priority, like the macOS menu bar
-        for definition, seq in reversed(mapped):
-            if matches(definition):
-                action, keys = definition, tuple((sk.key, sk.mods, sk.is_native) for sk in seq)
-                break
-        items.append((label, action, keys))
-    set_titlebar_menu(tuple(items))
+
+    def menu_items(menu: tuple[TitlebarMenuItem | None, ...]) -> 'tuple[TitlebarMenuItemSpec, ...]':
+        items: 'list[TitlebarMenuItemSpec]' = []
+        for entry in menu:
+            if entry is None:
+                items.append((None, None, (), False, None, None))
+                continue
+            action, keys = entry.action, ()
+            # Later definitions take priority, like the macOS menu bar
+            for definition, seq in reversed(mapped):
+                if entry.matches(definition):
+                    action, keys = definition, tuple((sk.key, sk.mods, sk.is_native) for sk in seq)
+                    break
+            items.append((entry.label, action, keys, entry.is_inline, entry.icon, entry.tooltip))
+        return tuple(items)
+
+    start, end = titlebar_menus
+    zoom_label = next((i for i, e in enumerate(end) if e is not None and e.label == ZOOM_LABEL), -1)
+    set_titlebar_menu(menu_items(start), menu_items(end), zoom_label, opts.font_size)
+
 
 _is_panel_kitten = False
 

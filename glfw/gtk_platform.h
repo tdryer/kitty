@@ -69,7 +69,20 @@ typedef struct GLFWgtkmenuitem {
     // The shortcut shown for the item, a sequence of num_keys keys
     const GLFWgtkmenukey *keys;
     size_t num_keys;
+    // An inline item is a button in a row with the adjacent inline items. It
+    // shows icon if set and the icon theme has it, else label. Its tooltip is
+    // tooltip if set, else label.
+    bool is_inline;
+    const char *icon, *tooltip;
 } GLFWgtkmenuitem;
+typedef enum GLFWgtktitlebarmenu {
+    // A split button at the start of the title bar, which runs the first item's
+    // action and shows its icon, with a menu of all the items
+    GLFW_GTK_TITLEBAR_MENU_START,
+    // A menu button at the end of the title bar
+    GLFW_GTK_TITLEBAR_MENU_END,
+    GLFW_GTK_TITLEBAR_MENU_COUNT
+} GLFWgtktitlebarmenu;
 
 // An offscreen color buffer kitty renders into. It is heap allocated because
 // GDK can hold on to the texture wrapping it after the window is gone.
@@ -84,7 +97,7 @@ typedef struct _GLFWgtkBuffer {
 } _GLFWgtkBuffer;
 
 typedef struct _GLFWwindowGtk {
-    GtkWidget *window, *toolbar_view, *header_bar, *view, *menu_button;
+    GtkWidget *window, *toolbar_view, *header_bar, *view, *menu_buttons[GLFW_GTK_TITLEBAR_MENU_COUNT];
     GLFWgtkmenuactionfun menu_callback;
     GtkIMContext *im_context, *compose_context;
     GtkCssProvider *titlebar_css;

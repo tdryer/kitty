@@ -342,17 +342,37 @@ titlebar_menu_callback(GLFWwindow *window, const char *action) {
     global_state.callback_os_window = NULL;
 }
 
-// Only the GTK backend has a titlebar menu, kitty sets its items with set_titlebar_menu()
-static struct {
+// Only the GTK backend has titlebar menus, kitty sets their items with set_titlebar_menu()
+typedef struct {
     GLFWgtkmenuitem *items;
     GLFWgtkmenukey *keys;
     size_t count;
-    PyObject *strings;  // keeps the label and action strings alive
-} titlebar_menu = {0};
+} TitlebarMenu;
+static struct {
+    TitlebarMenu menus[GLFW_GTK_TITLEBAR_MENU_COUNT];
+    PyObject *strings;  // keeps the label, action, icon and tooltip strings alive
+    // The item in the end menu that shows the font size as a percentage of
+    // base_font_size, -1 for none
+    ssize_t zoom_label;
+    double base_font_size;
+} titlebar_menu = {.zoom_label = -1};
 
 static void
-setup_titlebar_menu(GLFWwindow *window) {
-    if (glfwGtkSetTitlebarMenu) glfwGtkSetTitlebarMenu(window, titlebar_menu.items, titlebar_menu.count, titlebar_menu_callback);
+update_titlebar_zoom_label(OSWindow *w) {
+    if (!glfwGtkSetTitlebarMenuItemLabel || titlebar_menu.zoom_label < 0 || titlebar_menu.base_font_size <= 0 || !w->handle || !w->fonts_data) return;
+    char label[32];
+    snprintf(label, sizeof(label), "%.0f%%", 100. * w->fonts_data->font_sz_in_pts / titlebar_menu.base_font_size);
+    glfwGtkSetTitlebarMenuItemLabel(w->handle, GLFW_GTK_TITLEBAR_MENU_END, titlebar_menu.zoom_label, label);
+}
+
+static void
+setup_titlebar_menu(OSWindow *w) {
+    if (!glfwGtkSetTitlebarMenu) return;
+    for (int i = 0; i < GLFW_GTK_TITLEBAR_MENU_COUNT; i++) {
+        TitlebarMenu *m = titlebar_menu.menus + i;
+        glfwGtkSetTitlebarMenu(w->handle, i, m->items, m->count, titlebar_menu_callback);
+    }
+    update_titlebar_zoom_label(w);
 }
 
 static void
@@ -2552,7 +2572,7 @@ create_os_window(PyObject UNUSED *self, PyObject *args, PyObject *kw) {
     glfwSetWindowPosCallback(glfw_window, window_pos_callback);
     // missing size callback
     glfwSetWindowCloseCallback(glfw_window, window_close_callback);
-    if (!lsc) setup_titlebar_menu(glfw_window);
+    if (!lsc) setup_titlebar_menu(w);
     glfwSetWindowRefreshCallback(glfw_window, refresh_callback);
     glfwSetWindowFocusCallback(glfw_window, window_focus_callback);
     glfwSetWindowOcclusionCallback(glfw_window, window_occlusion_callback);
@@ -2613,6 +2633,7 @@ on_os_window_font_size_change(OSWindow *os_window, double new_sz) {
     os_window->fonts_data = load_fonts_data(new_sz, xdpi, ydpi);
     os_window_update_size_increments(os_window);
     if (os_window->is_layer_shell) set_layer_shell_config_for(os_window, NULL);
+    else update_titlebar_zoom_label(os_window);
 }
 
 #ifdef __APPLE__
@@ -3872,50 +3893,76 @@ set_layer_shell_config(PyObject *self UNUSED, PyObject *args) {
     return Py_NewRef(set_layer_shell_config_for(window, &lsc) ? Py_True : Py_False);
 }
 
-static PyObject *
-set_titlebar_menu(PyObject *self UNUSED, PyObject *items) {
-    // items is a sequence of (label, action, keys) where keys is the shortcut, a
-    // sequence of (key, mods, is_native), empty when the action has none. A None
-    // label starts a new section.
-    RAII_PyObject(seq, PySequence_Fast(items, "items must be a sequence"));
-    if (!seq) return NULL;
-    const size_t count = PySequence_Fast_GET_SIZE(seq);
+static bool
+parse_titlebar_menu(PyObject *items, TitlebarMenu *ans) {
+    // items is a tuple of (label, action, keys, is_inline, icon, tooltip) where
+    // keys is the shortcut, a tuple of (key, mods, is_native), empty when the
+    // action has none. A None label starts a new section. See GLFWgtkmenuitem.
+    if (!PyTuple_Check(items)) { PyErr_SetString(PyExc_TypeError, "items must be a tuple"); return false; }
+    const size_t count = PyTuple_GET_SIZE(items);
     size_t num_keys = 0;
     for (size_t i = 0; i < count; i++) {
-        PyObject *item = PySequence_Fast_GET_ITEM(seq, i);
-        if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 3 || !PyTuple_Check(PyTuple_GET_ITEM(item, 2))) {
-            PyErr_SetString(PyExc_TypeError, "items must be (label, action, keys) tuples with keys a tuple");
-            return NULL;
+        PyObject *item = PyTuple_GET_ITEM(items, i);
+        if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 6 || !PyTuple_Check(PyTuple_GET_ITEM(item, 2))) {
+            PyErr_SetString(PyExc_TypeError, "items must be (label, action, keys, is_inline, icon, tooltip) tuples with keys a tuple");
+            return false;
         }
         num_keys += PyTuple_GET_SIZE(PyTuple_GET_ITEM(item, 2));
     }
     RAII_ALLOC(GLFWgtkmenuitem, parsed, count ? calloc(count, sizeof(GLFWgtkmenuitem)) : NULL);
     RAII_ALLOC(GLFWgtkmenukey, keys, num_keys ? calloc(num_keys, sizeof(GLFWgtkmenukey)) : NULL);
-    if ((count && !parsed) || (num_keys && !keys)) return PyErr_NoMemory();
+    if ((count && !parsed) || (num_keys && !keys)) { PyErr_NoMemory(); return false; }
     GLFWgtkmenukey *k = keys;
     for (size_t i = 0; i < count; i++) {
-        PyObject *item = PySequence_Fast_GET_ITEM(seq, i), *label = PyTuple_GET_ITEM(item, 0), *action = PyTuple_GET_ITEM(item, 1), *shortcut = PyTuple_GET_ITEM(item, 2);
-        if (label != Py_None && !(parsed[i].label = PyUnicode_AsUTF8(label))) return NULL;
-        if (action != Py_None && !(parsed[i].action = PyUnicode_AsUTF8(action))) return NULL;
+        PyObject *label, *action, *shortcut, *icon, *tooltip;
+        int is_inline;
+        if (!PyArg_ParseTuple(PyTuple_GET_ITEM(items, i), "OOO!pOO", &label, &action, &PyTuple_Type, &shortcut, &is_inline, &icon, &tooltip)) return false;
+#define S(name) if (name != Py_None && !(parsed[i].name = PyUnicode_AsUTF8(name))) return false;
+        S(label) S(action) S(icon) S(tooltip)
+#undef S
+        parsed[i].is_inline = is_inline;
         parsed[i].keys = k;
         parsed[i].num_keys = PyTuple_GET_SIZE(shortcut);
         for (size_t j = 0; j < parsed[i].num_keys; j++, k++) {
             unsigned int key;
             int mods, is_native;
-            if (!PyArg_ParseTuple(PyTuple_GET_ITEM(shortcut, j), "Iip", &key, &mods, &is_native)) return NULL;
+            if (!PyArg_ParseTuple(PyTuple_GET_ITEM(shortcut, j), "Iip", &key, &mods, &is_native)) return false;
             *k = (GLFWgtkmenukey){.key = key, .mods = mods, .native_key = is_native};
         }
     }
-    free(titlebar_menu.items);
-    free(titlebar_menu.keys);
+    *ans = (TitlebarMenu){.items = parsed, .keys = keys, .count = count};
+    parsed = NULL; keys = NULL;
+    return true;
+}
+
+static PyObject *
+set_titlebar_menu(PyObject *self UNUSED, PyObject *args) {
+    // The items of the start and end menus, see parse_titlebar_menu(), the
+    // index of the zoom label in the end menu or -1, and the font size it is
+    // relative to
+    PyObject *start, *end;
+    Py_ssize_t zoom_label;
+    double base_font_size;
+    if (!PyArg_ParseTuple(args, "O!O!nd", &PyTuple_Type, &start, &PyTuple_Type, &end, &zoom_label, &base_font_size)) return NULL;
+    TitlebarMenu menus[GLFW_GTK_TITLEBAR_MENU_COUNT] = {0};
+    if (!parse_titlebar_menu(start, menus + GLFW_GTK_TITLEBAR_MENU_START)) return NULL;
+    if (!parse_titlebar_menu(end, menus + GLFW_GTK_TITLEBAR_MENU_END)) {
+        free(menus[GLFW_GTK_TITLEBAR_MENU_START].items);
+        free(menus[GLFW_GTK_TITLEBAR_MENU_START].keys);
+        return NULL;
+    }
+    for (int i = 0; i < GLFW_GTK_TITLEBAR_MENU_COUNT; i++) {
+        free(titlebar_menu.menus[i].items);
+        free(titlebar_menu.menus[i].keys);
+        titlebar_menu.menus[i] = menus[i];
+    }
     Py_CLEAR(titlebar_menu.strings);
-    titlebar_menu.items = parsed; parsed = NULL;
-    titlebar_menu.keys = keys; keys = NULL;
-    titlebar_menu.count = count;
-    titlebar_menu.strings = Py_NewRef(seq);
+    titlebar_menu.strings = Py_NewRef(args);
+    titlebar_menu.zoom_label = zoom_label;
+    titlebar_menu.base_font_size = base_font_size;
     for (size_t i = 0; i < global_state.num_os_windows; i++) {
         OSWindow *w = global_state.os_windows + i;
-        if (w->handle && !w->is_layer_shell) setup_titlebar_menu(w->handle);
+        if (w->handle && !w->is_layer_shell) setup_titlebar_menu(w);
     }
     Py_RETURN_NONE;
 }
@@ -4151,7 +4198,7 @@ static PyMethodDef module_methods[] = {
     METHODB(layer_shell_config_for_os_window, METH_O),
     METHODB(set_layer_shell_config, METH_VARARGS),
     METHODB(grab_keyboard, METH_O),
-    METHODB(set_titlebar_menu, METH_O),
+    METHODB(set_titlebar_menu, METH_VARARGS),
     METHODB(pointer_name_to_css_name, METH_O),
     {"create_os_window", (PyCFunction)(void (*)(void))(create_os_window), METH_VARARGS | METH_KEYWORDS, NULL},
     {"start_drag_with_data", (PyCFunction)(void (*)(void))(start_drag_with_data), METH_VARARGS | METH_KEYWORDS, NULL},

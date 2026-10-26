@@ -636,7 +636,11 @@ def glfw_primary_monitor_size() -> tuple[int, int]:
 def glfw_get_monitor_workarea() -> tuple[tuple[int, int, int, int], ...]:
     pass
 
-def set_titlebar_menu(items: tuple[tuple[str | None, str | None, tuple[tuple[int, int, bool], ...]], ...]) -> None: ...
+# (label, action, keys, is_inline, icon, tooltip), keys is a tuple of (key, mods, is_native)
+TitlebarMenuItemSpec = tuple[str | None, str | None, tuple[tuple[int, int, bool], ...], bool, str | None, str | None]
+def set_titlebar_menu(
+    start: tuple[TitlebarMenuItemSpec, ...], end: tuple[TitlebarMenuItemSpec, ...], zoom_label: int, base_font_size: float
+) -> None: ...
 def set_default_window_icon(path: str) -> None:
     pass
 

@@ -1943,7 +1943,8 @@ typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char*);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
 typedef void (*GLFWgtkmenuactionfun)(GLFWwindow*, const char*);
 typedef struct GLFWgtkmenukey { uint32_t key; int mods; bool native_key; } GLFWgtkmenukey;
-typedef struct GLFWgtkmenuitem { const char *label, *action; const GLFWgtkmenukey *keys; size_t num_keys; } GLFWgtkmenuitem;
+typedef struct GLFWgtkmenuitem { const char *label, *action; const GLFWgtkmenukey *keys; size_t num_keys; bool is_inline; const char *icon, *tooltip; } GLFWgtkmenuitem;
+typedef enum GLFWgtktitlebarmenu { GLFW_GTK_TITLEBAR_MENU_START, GLFW_GTK_TITLEBAR_MENU_END, GLFW_GTK_TITLEBAR_MENU_COUNT } GLFWgtktitlebarmenu;
 typedef int (*glfwInit_func)(monotonic_t, bool*);
 GFW_EXTERN glfwInit_func glfwInit_impl;
 #define glfwInit glfwInit_impl
@@ -2656,9 +2657,13 @@ typedef void (*glfwWaylandRedrawCSDWindowTitle_func)(GLFWwindow*);
 GFW_EXTERN glfwWaylandRedrawCSDWindowTitle_func glfwWaylandRedrawCSDWindowTitle_impl;
 #define glfwWaylandRedrawCSDWindowTitle glfwWaylandRedrawCSDWindowTitle_impl
 
-typedef void (*glfwGtkSetTitlebarMenu_func)(GLFWwindow*, const GLFWgtkmenuitem*, size_t, GLFWgtkmenuactionfun);
+typedef void (*glfwGtkSetTitlebarMenu_func)(GLFWwindow*, GLFWgtktitlebarmenu, const GLFWgtkmenuitem*, size_t, GLFWgtkmenuactionfun);
 GFW_EXTERN glfwGtkSetTitlebarMenu_func glfwGtkSetTitlebarMenu_impl;
 #define glfwGtkSetTitlebarMenu glfwGtkSetTitlebarMenu_impl
+
+typedef void (*glfwGtkSetTitlebarMenuItemLabel_func)(GLFWwindow*, GLFWgtktitlebarmenu, size_t, const char*);
+GFW_EXTERN glfwGtkSetTitlebarMenuItemLabel_func glfwGtkSetTitlebarMenuItemLabel_impl;
+#define glfwGtkSetTitlebarMenuItemLabel glfwGtkSetTitlebarMenuItemLabel_impl
 
 typedef bool (*glfwWaylandIsWindowFullyCreated_func)(GLFWwindow*);
 GFW_EXTERN glfwWaylandIsWindowFullyCreated_func glfwWaylandIsWindowFullyCreated_impl;
