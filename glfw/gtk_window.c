@@ -82,7 +82,11 @@ kitty_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
         // GL textures have their origin at the bottom left
         gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(0, th));
         gtk_snapshot_scale(snapshot, 1, -1);
-        gtk_snapshot_append_scaled_texture(snapshot, self->texture, GSK_SCALING_FILTER_NEAREST, &GRAPHENE_RECT_INIT(0, 0, tw, th));
+        // The texture maps 1:1 to device pixels so no filtering happens. Do
+        // not use gtk_snapshot_append_scaled_texture() with
+        // GSK_SCALING_FILTER_NEAREST here, GSK then resamples the texture,
+        // shifting and blurring it.
+        gtk_snapshot_append_texture(snapshot, self->texture, &GRAPHENE_RECT_INIT(0, 0, tw, th));
         gtk_snapshot_restore(snapshot);
     }
     // Fill whatever the texture does not cover, for example while kitty
