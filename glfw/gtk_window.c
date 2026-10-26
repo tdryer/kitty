@@ -1245,18 +1245,87 @@ on_menu_closed(GtkPopover *popover UNUSED, gpointer data) {
 }
 
 static char *
-menu_accel(const GLFWgtkmenuitem *item) {
-    if (!item->key) return NULL;
-    const guint keyval = item->native_key ? item->key : _glfwGtkSymForKey(item->key);
+menu_key_label(const GLFWgtkmenukey *k) {
+    const guint keyval = k->native_key ? k->key : _glfwGtkSymForKey(k->key);
     if (!keyval) return NULL;
     GdkModifierType mods = 0;
-    if (item->mods & GLFW_MOD_SHIFT) mods |= GDK_SHIFT_MASK;
-    if (item->mods & GLFW_MOD_CONTROL) mods |= GDK_CONTROL_MASK;
-    if (item->mods & GLFW_MOD_ALT) mods |= GDK_ALT_MASK;
-    if (item->mods & GLFW_MOD_SUPER) mods |= GDK_SUPER_MASK;
-    if (item->mods & GLFW_MOD_HYPER) mods |= GDK_HYPER_MASK;
-    if (item->mods & GLFW_MOD_META) mods |= GDK_META_MASK;
-    return gtk_accelerator_name(keyval, mods);
+    if (k->mods & GLFW_MOD_SHIFT) mods |= GDK_SHIFT_MASK;
+    if (k->mods & GLFW_MOD_CONTROL) mods |= GDK_CONTROL_MASK;
+    if (k->mods & GLFW_MOD_ALT) mods |= GDK_ALT_MASK;
+    if (k->mods & GLFW_MOD_SUPER) mods |= GDK_SUPER_MASK;
+    if (k->mods & GLFW_MOD_HYPER) mods |= GDK_HYPER_MASK;
+    if (k->mods & GLFW_MOD_META) mods |= GDK_META_MASK;
+    return gtk_accelerator_get_label(keyval, mods);
+}
+
+// The shortcut of the item as shown in the menu, e.g. "Ctrl+B C", NULL for none
+static char *
+menu_shortcut_label(const GLFWgtkmenuitem *item) {
+    if (!item->num_keys) return NULL;
+    GString *ans = g_string_new(NULL);
+    for (size_t i = 0; i < item->num_keys; i++) {
+        char *label = menu_key_label(&item->keys[i]);
+        if (!label) return g_string_free(ans, TRUE), NULL;
+        if (i) g_string_append_c(ans, ' ');
+        g_string_append(ans, label);
+        g_free(label);
+    }
+    return g_string_free(ans, FALSE);
+}
+
+// GtkModelButton can only show a single key shortcut, so the menu items are
+// buttons that look like it, see the popover.menu modelbutton theme rules.
+// Like GtkPopoverMenu does for its items, the focused item is the selected one
+// and hovering an item focuses it, so only one is highlighted.
+static void
+on_menu_row_focus_enter(GtkEventControllerFocus *controller, gpointer data UNUSED) {
+    gtk_widget_set_state_flags(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller)), GTK_STATE_FLAG_SELECTED, FALSE);
+}
+
+static void
+on_menu_row_focus_leave(GtkEventControllerFocus *controller, gpointer data UNUSED) {
+    gtk_widget_unset_state_flags(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller)), GTK_STATE_FLAG_SELECTED);
+}
+
+static void
+on_menu_row_enter(GtkEventControllerMotion *controller, double x UNUSED, double y UNUSED, gpointer data UNUSED) {
+    gtk_widget_grab_focus(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller)));
+}
+
+static void
+on_menu_row_clicked(GtkButton *button, gpointer data UNUSED) {
+    GtkWidget *popover = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
+    if (popover) gtk_popover_popdown(GTK_POPOVER(popover));
+}
+
+static GtkWidget *
+menu_row_new(const GLFWgtkmenuitem *item) {
+    GtkWidget *button = g_object_new(GTK_TYPE_BUTTON, "css-name", "modelbutton", "accessible-role", GTK_ACCESSIBLE_ROLE_MENU_ITEM, NULL);
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(button), "kitty.menu");
+    gtk_actionable_set_action_target_value(GTK_ACTIONABLE(button), g_variant_new_string(item->action ? item->action : ""));
+    g_signal_connect(button, "clicked", G_CALLBACK(on_menu_row_clicked), NULL);
+    GtkEventController *focus = gtk_event_controller_focus_new();
+    g_signal_connect(focus, "enter", G_CALLBACK(on_menu_row_focus_enter), NULL);
+    g_signal_connect(focus, "leave", G_CALLBACK(on_menu_row_focus_leave), NULL);
+    gtk_widget_add_controller(button, focus);
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "enter", G_CALLBACK(on_menu_row_enter), NULL);
+    gtk_widget_add_controller(button, motion);
+
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget *label = gtk_label_new(item->label);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_box_append(GTK_BOX(box), label);
+    char *shortcut = menu_shortcut_label(item);
+    if (shortcut) {
+        // Only shown, kitty handles the keys itself
+        GtkWidget *accel = g_object_new(GTK_TYPE_LABEL, "css-name", "accelerator", "label", shortcut, NULL);
+        gtk_box_append(GTK_BOX(box), accel);
+        g_free(shortcut);
+    }
+    gtk_button_set_child(GTK_BUTTON(button), box);
+    return button;
 }
 
 // Shows a menu button at the end of the header bar with the items, see
@@ -1280,6 +1349,8 @@ glfwGtkSetTitlebarMenu(GLFWwindow *handle, const GLFWgtkmenuitem *items, size_t 
     gtk_widget_insert_action_group(window->gtk.window, "kitty", G_ACTION_GROUP(group));
     g_object_unref(group);
 
+    // The menu model only has the sections and a slot for each item, filled
+    // with its row below
     GMenu *menu = g_menu_new(), *section = g_menu_new();
     for (size_t i = 0; i < count; i++) {
         if (!items[i].label) {
@@ -1288,14 +1359,10 @@ glfwGtkSetTitlebarMenu(GLFWwindow *handle, const GLFWgtkmenuitem *items, size_t 
             section = g_menu_new();
             continue;
         }
-        GMenuItem *item = g_menu_item_new(items[i].label, NULL);
-        g_menu_item_set_action_and_target_value(item, "kitty.menu", g_variant_new_string(items[i].action ? items[i].action : ""));
-        char *accel = menu_accel(&items[i]);
-        if (accel) {
-            // Only shown, kitty handles the keys itself
-            g_menu_item_set_attribute(item, "accel", "s", accel);
-            g_free(accel);
-        }
+        GMenuItem *item = g_menu_item_new(NULL, NULL);
+        char id[32];
+        snprintf(id, sizeof(id), "item-%zu", i);
+        g_menu_item_set_attribute(item, "custom", "s", id);
         g_menu_append_item(section, item);
         g_object_unref(item);
     }
@@ -1311,7 +1378,15 @@ glfwGtkSetTitlebarMenu(GLFWwindow *handle, const GLFWgtkmenuitem *items, size_t 
     gtk_widget_set_focus_on_click(button, FALSE);
     g_object_unref(menu);
     GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(button));
-    if (popover) g_signal_connect(popover, "closed", G_CALLBACK(on_menu_closed), window);
+    if (popover) {
+        g_signal_connect(popover, "closed", G_CALLBACK(on_menu_closed), window);
+        for (size_t i = 0; i < count; i++) {
+            if (!items[i].label) continue;
+            char id[32];
+            snprintf(id, sizeof(id), "item-%zu", i);
+            gtk_popover_menu_add_child(GTK_POPOVER_MENU(popover), menu_row_new(&items[i]), id);
+        }
+    }
     adw_header_bar_pack_end(ADW_HEADER_BAR(window->gtk.header_bar), button);
     window->gtk.menu_button = button;
 }

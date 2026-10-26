@@ -160,7 +160,8 @@ typedef void (*GLFWDBusnotificationcreatedfun)(unsigned long long, uint32_t, voi
 typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char*);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
 typedef void (*GLFWgtkmenuactionfun)(GLFWwindow*, const char*);
-typedef struct GLFWgtkmenuitem {{ const char *label, *action; uint32_t key; int mods; bool native_key; }} GLFWgtkmenuitem;
+typedef struct GLFWgtkmenukey {{ uint32_t key; int mods; bool native_key; }} GLFWgtkmenukey;
+typedef struct GLFWgtkmenuitem {{ const char *label, *action; const GLFWgtkmenukey *keys; size_t num_keys; }} GLFWgtkmenuitem;
 {}
 
 const char* load_glfw(const char* path);

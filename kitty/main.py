@@ -288,28 +288,38 @@ titlebar_menu_items: tuple[tuple[str, str, Callable[[str], bool]] | None, ...] =
 )
 
 
+def _titlebar_menu_shortcuts(opts: Options) -> list[tuple[str, tuple[SingleKey, ...]]]:
+    # The (action, key sequence) of the active shortcuts that work in every
+    # window. Like Boss.matching_key_actions(), a single key mapping
+    # shadows the sequences that start with it that were defined before it, and
+    # the other way around.
+    ans: list[tuple[str, tuple[SingleKey, ...]]] = []
+    for kds in opts.keyboard_modes[''].keymap.values():
+        kds = [kd for kd in kds if not kd.options.when_focus_on and not kd.options.mode and not kd.options.new_mode]
+        last_single = max((i for i, kd in enumerate(kds) if not kd.is_sequence), default=-1)
+        active = kds[last_single:] if last_single == len(kds) - 1 else kds[last_single + 1:]
+        ans.extend((' '.join(kd.definition.split()), kd.full_key_sequence_to_trigger) for kd in active)
+    return ans
+
+
 def set_titlebar_menu_from_opts(opts: Options) -> None:
     # Only the GTK backend shows this menu, in the window's title bar
     if is_macos:
         return
-    mapped = []
-    for single_key, v in opts.keyboard_modes[''].keymap.items():
-        kd = v[-1]  # the last definition is the active one
-        if kd.is_suitable_for_global_shortcut:
-            mapped.append((' '.join(kd.definition.split()), single_key))
-    items: list[tuple[str | None, str | None, int, int, bool]] = []
+    mapped = _titlebar_menu_shortcuts(opts)
+    items: list[tuple[str | None, str | None, tuple[tuple[int, int, bool], ...]]] = []
     for entry in titlebar_menu_items:
         if entry is None:
-            items.append((None, None, 0, 0, False))
+            items.append((None, None, ()))
             continue
         label, action, matches = entry
-        key, mods, is_native = 0, 0, False
+        keys: tuple[tuple[int, int, bool], ...] = ()
         # Later definitions take priority, like the macOS menu bar
-        for definition, sk in reversed(mapped):
+        for definition, seq in reversed(mapped):
             if matches(definition):
-                action, key, mods, is_native = definition, sk.key, sk.mods, sk.is_native
+                action, keys = definition, tuple((sk.key, sk.mods, sk.is_native) for sk in seq)
                 break
-        items.append((label, action, key, mods, is_native))
+        items.append((label, action, keys))
     set_titlebar_menu(tuple(items))
 
 _is_panel_kitten = False

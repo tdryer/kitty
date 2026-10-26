@@ -636,7 +636,7 @@ def glfw_primary_monitor_size() -> tuple[int, int]:
 def glfw_get_monitor_workarea() -> tuple[tuple[int, int, int, int], ...]:
     pass
 
-def set_titlebar_menu(items: tuple[tuple[str | None, str | None, int, int, bool], ...]) -> None: ...
+def set_titlebar_menu(items: tuple[tuple[str | None, str | None, tuple[tuple[int, int, bool], ...]], ...]) -> None: ...
 def set_default_window_icon(path: str) -> None:
     pass
 

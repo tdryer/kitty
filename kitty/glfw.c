@@ -345,6 +345,7 @@ titlebar_menu_callback(GLFWwindow *window, const char *action) {
 // Only the GTK backend has a titlebar menu, kitty sets its items with set_titlebar_menu()
 static struct {
     GLFWgtkmenuitem *items;
+    GLFWgtkmenukey *keys;
     size_t count;
     PyObject *strings;  // keeps the label and action strings alive
 } titlebar_menu = {0};
@@ -3873,36 +3874,43 @@ set_layer_shell_config(PyObject *self UNUSED, PyObject *args) {
 
 static PyObject *
 set_titlebar_menu(PyObject *self UNUSED, PyObject *items) {
-    // items is a sequence of (label, action, key, mods, is_native). A None
-    // label starts a new section. key is 0 when the action has no shortcut.
+    // items is a sequence of (label, action, keys) where keys is the shortcut, a
+    // sequence of (key, mods, is_native), empty when the action has none. A None
+    // label starts a new section.
     RAII_PyObject(seq, PySequence_Fast(items, "items must be a sequence"));
     if (!seq) return NULL;
     const size_t count = PySequence_Fast_GET_SIZE(seq);
-    GLFWgtkmenuitem *parsed = count ? calloc(count, sizeof(GLFWgtkmenuitem)) : NULL;
-    if (count && !parsed) return PyErr_NoMemory();
+    size_t num_keys = 0;
     for (size_t i = 0; i < count; i++) {
-        PyObject *label, *action;
-        unsigned int key;
-        int mods, is_native;
-        if (!PyArg_ParseTuple(PySequence_Fast_GET_ITEM(seq, i), "OOIip", &label, &action, &key, &mods, &is_native)) {
-            free(parsed);
+        PyObject *item = PySequence_Fast_GET_ITEM(seq, i);
+        if (!PyTuple_Check(item) || PyTuple_GET_SIZE(item) != 3 || !PyTuple_Check(PyTuple_GET_ITEM(item, 2))) {
+            PyErr_SetString(PyExc_TypeError, "items must be (label, action, keys) tuples with keys a tuple");
             return NULL;
         }
-        if (label != Py_None && !(parsed[i].label = PyUnicode_AsUTF8(label))) {
-            free(parsed);
-            return NULL;
+        num_keys += PyTuple_GET_SIZE(PyTuple_GET_ITEM(item, 2));
+    }
+    RAII_ALLOC(GLFWgtkmenuitem, parsed, count ? calloc(count, sizeof(GLFWgtkmenuitem)) : NULL);
+    RAII_ALLOC(GLFWgtkmenukey, keys, num_keys ? calloc(num_keys, sizeof(GLFWgtkmenukey)) : NULL);
+    if ((count && !parsed) || (num_keys && !keys)) return PyErr_NoMemory();
+    GLFWgtkmenukey *k = keys;
+    for (size_t i = 0; i < count; i++) {
+        PyObject *item = PySequence_Fast_GET_ITEM(seq, i), *label = PyTuple_GET_ITEM(item, 0), *action = PyTuple_GET_ITEM(item, 1), *shortcut = PyTuple_GET_ITEM(item, 2);
+        if (label != Py_None && !(parsed[i].label = PyUnicode_AsUTF8(label))) return NULL;
+        if (action != Py_None && !(parsed[i].action = PyUnicode_AsUTF8(action))) return NULL;
+        parsed[i].keys = k;
+        parsed[i].num_keys = PyTuple_GET_SIZE(shortcut);
+        for (size_t j = 0; j < parsed[i].num_keys; j++, k++) {
+            unsigned int key;
+            int mods, is_native;
+            if (!PyArg_ParseTuple(PyTuple_GET_ITEM(shortcut, j), "Iip", &key, &mods, &is_native)) return NULL;
+            *k = (GLFWgtkmenukey){.key = key, .mods = mods, .native_key = is_native};
         }
-        if (action != Py_None && !(parsed[i].action = PyUnicode_AsUTF8(action))) {
-            free(parsed);
-            return NULL;
-        }
-        parsed[i].key = key;
-        parsed[i].mods = mods;
-        parsed[i].native_key = is_native;
     }
     free(titlebar_menu.items);
+    free(titlebar_menu.keys);
     Py_CLEAR(titlebar_menu.strings);
-    titlebar_menu.items = parsed;
+    titlebar_menu.items = parsed; parsed = NULL;
+    titlebar_menu.keys = keys; keys = NULL;
     titlebar_menu.count = count;
     titlebar_menu.strings = Py_NewRef(seq);
     for (size_t i = 0; i < global_state.num_os_windows; i++) {
