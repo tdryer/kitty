@@ -3653,6 +3653,10 @@ class Boss:
             from .fast_data_types import cocoa_recreate_global_menu
 
             cocoa_recreate_global_menu()
+        else:
+            from .main import set_titlebar_menu_from_opts
+
+            set_titlebar_menu_from_opts(opts)
         for tm in self.all_tab_managers:
             tm.apply_options()
         # Update colors

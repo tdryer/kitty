@@ -342,18 +342,16 @@ titlebar_menu_callback(GLFWwindow *window, const char *action) {
     global_state.callback_os_window = NULL;
 }
 
+// Only the GTK backend has a titlebar menu, kitty sets its items with set_titlebar_menu()
+static struct {
+    GLFWgtkmenuitem *items;
+    size_t count;
+    PyObject *strings;  // keeps the label and action strings alive
+} titlebar_menu = {0};
+
 static void
 setup_titlebar_menu(GLFWwindow *window) {
-    // Only the GTK backend has a titlebar menu. NULL labels start a new section.
-    static const char *const labels[] = {"New Tab", "New Window", NULL, "Split Right", "Split Down"};
-    static const char *const actions[] = {
-        "new_tab",
-        "new_os_window",
-        NULL,
-        "combine : goto_layout splits : launch --location=vsplit",
-        "combine : goto_layout splits : launch --location=hsplit",
-    };
-    if (glfwGtkSetTitlebarMenu) glfwGtkSetTitlebarMenu(window, labels, actions, arraysz(labels), titlebar_menu_callback);
+    if (glfwGtkSetTitlebarMenu) glfwGtkSetTitlebarMenu(window, titlebar_menu.items, titlebar_menu.count, titlebar_menu_callback);
 }
 
 static void
@@ -3874,6 +3872,47 @@ set_layer_shell_config(PyObject *self UNUSED, PyObject *args) {
 }
 
 static PyObject *
+set_titlebar_menu(PyObject *self UNUSED, PyObject *items) {
+    // items is a sequence of (label, action, key, mods, is_native). A None
+    // label starts a new section. key is 0 when the action has no shortcut.
+    RAII_PyObject(seq, PySequence_Fast(items, "items must be a sequence"));
+    if (!seq) return NULL;
+    const size_t count = PySequence_Fast_GET_SIZE(seq);
+    GLFWgtkmenuitem *parsed = count ? calloc(count, sizeof(GLFWgtkmenuitem)) : NULL;
+    if (count && !parsed) return PyErr_NoMemory();
+    for (size_t i = 0; i < count; i++) {
+        PyObject *label, *action;
+        unsigned int key;
+        int mods, is_native;
+        if (!PyArg_ParseTuple(PySequence_Fast_GET_ITEM(seq, i), "OOIip", &label, &action, &key, &mods, &is_native)) {
+            free(parsed);
+            return NULL;
+        }
+        if (label != Py_None && !(parsed[i].label = PyUnicode_AsUTF8(label))) {
+            free(parsed);
+            return NULL;
+        }
+        if (action != Py_None && !(parsed[i].action = PyUnicode_AsUTF8(action))) {
+            free(parsed);
+            return NULL;
+        }
+        parsed[i].key = key;
+        parsed[i].mods = mods;
+        parsed[i].native_key = is_native;
+    }
+    free(titlebar_menu.items);
+    Py_CLEAR(titlebar_menu.strings);
+    titlebar_menu.items = parsed;
+    titlebar_menu.count = count;
+    titlebar_menu.strings = Py_NewRef(seq);
+    for (size_t i = 0; i < global_state.num_os_windows; i++) {
+        OSWindow *w = global_state.os_windows + i;
+        if (w->handle && !w->is_layer_shell) setup_titlebar_menu(w->handle);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *
 grab_keyboard(PyObject *self UNUSED, PyObject *action) {
     return Py_NewRef(glfwGrabKeyboard(action == Py_None ? 2 : PyObject_IsTrue(action)) ? Py_True : Py_False);
 }
@@ -4104,6 +4143,7 @@ static PyMethodDef module_methods[] = {
     METHODB(layer_shell_config_for_os_window, METH_O),
     METHODB(set_layer_shell_config, METH_VARARGS),
     METHODB(grab_keyboard, METH_O),
+    METHODB(set_titlebar_menu, METH_O),
     METHODB(pointer_name_to_css_name, METH_O),
     {"create_os_window", (PyCFunction)(void (*)(void))(create_os_window), METH_VARARGS | METH_KEYWORDS, NULL},
     {"start_drag_with_data", (PyCFunction)(void (*)(void))(start_drag_with_data), METH_VARARGS | METH_KEYWORDS, NULL},

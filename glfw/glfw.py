@@ -108,7 +108,7 @@ def generate_wrappers(glfw_header: str) -> None:
     void glfwWaylandSetTitlebarHidden(GLFWwindow *handle, bool hidden)
     void glfwWaylandSetInitialWindowSizeCallback(GLFWwaylandinitialsizefun callback)
     void glfwWaylandRedrawCSDWindowTitle(GLFWwindow *handle)
-    void glfwGtkSetTitlebarMenu(GLFWwindow *handle, const char * const *labels, const char * const *actions, size_t count, GLFWgtkmenuactionfun callback)
+    void glfwGtkSetTitlebarMenu(GLFWwindow *handle, const GLFWgtkmenuitem *items, size_t count, GLFWgtkmenuactionfun callback)
     bool glfwWaylandIsWindowFullyCreated(GLFWwindow *handle)
     bool glfwWaylandBeep(GLFWwindow *handle)
     pid_t glfwWaylandCompositorPID(void)
@@ -160,6 +160,7 @@ typedef void (*GLFWDBusnotificationcreatedfun)(unsigned long long, uint32_t, voi
 typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char*);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
 typedef void (*GLFWgtkmenuactionfun)(GLFWwindow*, const char*);
+typedef struct GLFWgtkmenuitem {{ const char *label, *action; uint32_t key; int mods; bool native_key; }} GLFWgtkmenuitem;
 {}
 
 const char* load_glfw(const char* path);

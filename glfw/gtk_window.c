@@ -1244,10 +1244,25 @@ on_menu_closed(GtkPopover *popover UNUSED, gpointer data) {
     if (window && window->gtk.view) gtk_widget_grab_focus(window->gtk.view);
 }
 
-// Shows a menu button at the end of the header bar. A NULL label starts a new
-// section. Activating an item calls callback with its action string.
+static char *
+menu_accel(const GLFWgtkmenuitem *item) {
+    if (!item->key) return NULL;
+    const guint keyval = item->native_key ? item->key : _glfwGtkSymForKey(item->key);
+    if (!keyval) return NULL;
+    GdkModifierType mods = 0;
+    if (item->mods & GLFW_MOD_SHIFT) mods |= GDK_SHIFT_MASK;
+    if (item->mods & GLFW_MOD_CONTROL) mods |= GDK_CONTROL_MASK;
+    if (item->mods & GLFW_MOD_ALT) mods |= GDK_ALT_MASK;
+    if (item->mods & GLFW_MOD_SUPER) mods |= GDK_SUPER_MASK;
+    if (item->mods & GLFW_MOD_HYPER) mods |= GDK_HYPER_MASK;
+    if (item->mods & GLFW_MOD_META) mods |= GDK_META_MASK;
+    return gtk_accelerator_name(keyval, mods);
+}
+
+// Shows a menu button at the end of the header bar with the items, see
+// GLFWgtkmenuitem. Activating an item calls callback with its action.
 GLFWAPI void
-glfwGtkSetTitlebarMenu(GLFWwindow *handle, const char *const *labels, const char *const *actions, size_t count, GLFWgtkmenuactionfun callback) {
+glfwGtkSetTitlebarMenu(GLFWwindow *handle, const GLFWgtkmenuitem *items, size_t count, GLFWgtkmenuactionfun callback) {
     _GLFWwindow *window = (_GLFWwindow *)handle;
     if (!window->gtk.header_bar) return;
     if (window->gtk.menu_button) {
@@ -1267,14 +1282,20 @@ glfwGtkSetTitlebarMenu(GLFWwindow *handle, const char *const *labels, const char
 
     GMenu *menu = g_menu_new(), *section = g_menu_new();
     for (size_t i = 0; i < count; i++) {
-        if (!labels[i]) {
+        if (!items[i].label) {
             if (g_menu_model_get_n_items(G_MENU_MODEL(section))) g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
             g_object_unref(section);
             section = g_menu_new();
             continue;
         }
-        GMenuItem *item = g_menu_item_new(labels[i], NULL);
-        g_menu_item_set_action_and_target_value(item, "kitty.menu", g_variant_new_string(actions[i]));
+        GMenuItem *item = g_menu_item_new(items[i].label, NULL);
+        g_menu_item_set_action_and_target_value(item, "kitty.menu", g_variant_new_string(items[i].action ? items[i].action : ""));
+        char *accel = menu_accel(&items[i]);
+        if (accel) {
+            // Only shown, kitty handles the keys itself
+            g_menu_item_set_attribute(item, "accel", "s", accel);
+            g_free(accel);
+        }
         g_menu_append_item(section, item);
         g_object_unref(item);
     }

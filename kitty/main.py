@@ -52,6 +52,7 @@ from .fast_data_types import (
     run_at_exit_cleanup_functions,
     set_custom_cursor,
     set_default_window_icon,
+    set_titlebar_menu,
     set_options,
     set_use_os_log,
 )
@@ -254,6 +255,45 @@ def set_cocoa_global_shortcuts(opts: Options) -> dict[str, SingleKey]:
     return global_shortcuts
 
 
+
+# Label, action run by the menu, and the definitions whose shortcut is shown
+titlebar_menu_items: tuple[tuple[str, str, tuple[str, ...]] | None, ...] = (
+    ('New Tab', 'new_tab', ('new_tab',)),
+    ('New Window', 'new_os_window', ('new_os_window',)),
+    None,
+    ('Split Right', 'combine : goto_layout splits : launch --location=vsplit', ('launch --location=vsplit',)),
+    ('Split Down', 'combine : goto_layout splits : launch --location=hsplit', ('launch --location=hsplit',)),
+)
+
+
+def set_titlebar_menu_from_opts(opts: Options) -> None:
+    # Only the GTK backend shows this menu, in the window's title bar
+    if is_macos:
+        return
+    from collections import defaultdict
+
+    func_map: dict[tuple[str, ...], list[SingleKey]] = defaultdict(list)
+    for single_key, v in opts.keyboard_modes[''].keymap.items():
+        kd = v[-1]  # the last definition is the active one
+        if kd.is_suitable_for_global_shortcut:
+            func_map[tuple(kd.definition.split())].append(single_key)
+    items: list[tuple[str | None, str | None, int, int, bool]] = []
+    for entry in titlebar_menu_items:
+        if entry is None:
+            items.append((None, None, 0, 0, False))
+            continue
+        label, action, definitions = entry
+        key, mods, is_native = 0, 0, False
+        for defn in definitions:
+            if candidates := func_map.get(tuple(defn.split())):
+                # Later definitions take priority, like the macOS menu bar
+                sk = candidates[-1]
+                key, mods, is_native = sk.key, sk.mods, sk.is_native
+                break
+        items.append((label, action, key, mods, is_native))
+    set_titlebar_menu(tuple(items))
+
+
 _is_panel_kitten = False
 
 
@@ -318,6 +358,7 @@ def _run_app(opts: Options, args: CLIOptions, bad_lines: Sequence[BadLine] = (),
     else:
         global_shortcuts = {}
         set_window_icon()
+        set_titlebar_menu_from_opts(opts)
     if _is_panel_kitten and not is_layer_shell_supported():
         raise SystemExit('Cannot create panels as the window manager/compositor does not support the necessary protocols')
     pos_x, pos_y = None, None

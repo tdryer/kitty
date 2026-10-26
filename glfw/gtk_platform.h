@@ -57,6 +57,15 @@ typedef void (*GLFWDBusnotificationcreatedfun)(unsigned long long, uint32_t, voi
 typedef void (*GLFWDBusnotificationactivatedfun)(uint32_t, int, const char *);
 typedef void (*GLFWDBussessionstatefun)(uint32_t);
 typedef void (*GLFWgtkmenuactionfun)(GLFWwindow *, const char *);
+typedef struct GLFWgtkmenuitem {
+    // A NULL label starts a new section
+    const char *label, *action;
+    // The shortcut shown for the item, key is 0 for none. A GLFW key, or a
+    // keysym when native_key is set, mods are GLFW_MOD_* flags.
+    uint32_t key;
+    int mods;
+    bool native_key;
+} GLFWgtkmenuitem;
 
 // An offscreen color buffer kitty renders into. It is heap allocated because
 // GDK can hold on to the texture wrapping it after the window is gone.
