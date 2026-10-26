@@ -6,7 +6,7 @@ import locale
 import os
 import shutil
 import sys
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager, suppress
 from gettext import gettext as _
 
@@ -256,13 +256,35 @@ def set_cocoa_global_shortcuts(opts: Options) -> dict[str, SingleKey]:
 
 
 
-# Label, action run by the menu, and the definitions whose shortcut is shown
-titlebar_menu_items: tuple[tuple[str, str, tuple[str, ...]] | None, ...] = (
-    ('New Tab', 'new_tab', ('new_tab',)),
-    ('New Window', 'new_os_window', ('new_os_window',)),
+def _is_split_action(definition: str, location: str) -> bool:
+    import shlex
+
+    parts = definition.split(maxsplit=1)
+    if not parts or parts[0] != 'launch':
+        return False
+    from .launch import parse_launch_args
+
+    try:
+        spec = parse_launch_args(shlex.split(parts[1]) if len(parts) > 1 else [])
+    except ValueError:
+        return False
+    return spec.opts.type == 'window' and spec.opts.location == location
+
+
+def _split_item(label: str, location: str) -> tuple[str, str, Callable[[str], bool]]:
+    action = f'combine : goto_layout splits : launch --location={location}'
+    return label, action, lambda d: d == action or _is_split_action(d, location)
+
+
+# Label, the action run when no shortcut is mapped and a test for the mapped
+# actions that do the same thing. When one is mapped, the menu item shows its
+# shortcut and runs its action, so the two always behave the same.
+titlebar_menu_items: tuple[tuple[str, str, Callable[[str], bool]] | None, ...] = (
+    ('New Tab', 'new_tab', lambda d: d in ('new_tab', 'new_tab_with_cwd')),
+    ('New Window', 'new_os_window', lambda d: d in ('new_os_window', 'new_os_window_with_cwd')),
     None,
-    ('Split Right', 'combine : goto_layout splits : launch --location=vsplit', ('launch --location=vsplit',)),
-    ('Split Down', 'combine : goto_layout splits : launch --location=hsplit', ('launch --location=hsplit',)),
+    _split_item('Split Right', 'vsplit'),
+    _split_item('Split Down', 'hsplit'),
 )
 
 
@@ -270,29 +292,25 @@ def set_titlebar_menu_from_opts(opts: Options) -> None:
     # Only the GTK backend shows this menu, in the window's title bar
     if is_macos:
         return
-    from collections import defaultdict
-
-    func_map: dict[tuple[str, ...], list[SingleKey]] = defaultdict(list)
+    mapped = []
     for single_key, v in opts.keyboard_modes[''].keymap.items():
         kd = v[-1]  # the last definition is the active one
         if kd.is_suitable_for_global_shortcut:
-            func_map[tuple(kd.definition.split())].append(single_key)
+            mapped.append((' '.join(kd.definition.split()), single_key))
     items: list[tuple[str | None, str | None, int, int, bool]] = []
     for entry in titlebar_menu_items:
         if entry is None:
             items.append((None, None, 0, 0, False))
             continue
-        label, action, definitions = entry
+        label, action, matches = entry
         key, mods, is_native = 0, 0, False
-        for defn in definitions:
-            if candidates := func_map.get(tuple(defn.split())):
-                # Later definitions take priority, like the macOS menu bar
-                sk = candidates[-1]
-                key, mods, is_native = sk.key, sk.mods, sk.is_native
+        # Later definitions take priority, like the macOS menu bar
+        for definition, sk in reversed(mapped):
+            if matches(definition):
+                action, key, mods, is_native = definition, sk.key, sk.mods, sk.is_native
                 break
         items.append((label, action, key, mods, is_native))
     set_titlebar_menu(tuple(items))
-
 
 _is_panel_kitten = False
 
