@@ -168,6 +168,7 @@ void _glfwGtkWatchMonitors(void);
 void _glfwGtkEndNestedLoop(void);
 void _glfwGtkPresentTexture(_GLFWwindow *window, GdkTexture *texture);
 void _glfwGtkRestoreContext(void);
+void _glfwGtkDBusTerminate(void);
 void _glfwGtkDestroyBuffers(_GLFWwindow *window);
 bool _glfwGtkGLInit(void);
 void _glfwGtkGLTerminate(void);

@@ -126,6 +126,7 @@ _glfwPlatformTerminate(void) {
     }
     _glfw.gtk.clipboard_handler = 0;
     _glfw.gtk.primary_handler = 0;
+    _glfwGtkDBusTerminate();
     _glfwGtkGLTerminate();
     if (_glfw.gtk.main_loop) g_main_loop_unref(_glfw.gtk.main_loop);
     _glfw.gtk.main_loop = NULL;
@@ -713,19 +714,6 @@ glfwWaylandCompositorPID(void) {
 GLFWAPI const char *
 glfwWaylandMissingCapabilities(void) {
     return "";
-}
-
-GLFWAPI unsigned long long
-glfwDBusUserNotify(const GLFWDBUSNotificationData *n UNUSED, GLFWDBusnotificationcreatedfun callback UNUSED, void *data UNUSED) {
-    return 0;
-}
-
-GLFWAPI void
-glfwDBusSetUserNotificationHandler(GLFWDBusnotificationactivatedfun handler UNUSED) {}
-
-GLFWAPI bool
-glfwDBusMonitorSessionState(GLFWDBussessionstatefun callback UNUSED) {
-    return false;
 }
 
 GLFWAPI bool

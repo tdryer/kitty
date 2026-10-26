@@ -45,6 +45,7 @@
     ],
     "sources": [
       "gtk_init.c",
+      "gtk_dbus.c",
       "gtk_monitor.c",
       "gtk_window.c",
       "gtk_keys.c",
