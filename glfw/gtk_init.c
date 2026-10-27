@@ -352,6 +352,7 @@ _glfwPlatformRemoveTimer(unsigned long long timer_id) {
 #define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
 #define GL_FRAMEBUFFER_BINDING 0x8CA6
 #define GL_TEXTURE_BINDING_2D 0x8069
+#define GL_VIEWPORT 0x0BA2
 
 typedef void(APIENTRY *PFN_glGenTextures)(int, GLuint *);
 typedef void(APIENTRY *PFN_glDeleteTextures)(int, const GLuint *);
@@ -367,6 +368,7 @@ typedef GLenum(APIENTRY *PFN_glCheckFramebufferStatus)(GLenum);
 typedef void *(APIENTRY *PFN_glFenceSync)(GLenum, GLbitfield);
 typedef void(APIENTRY *PFN_glDeleteSync)(void *);
 typedef void(APIENTRY *PFN_glFlush)(void);
+typedef void(APIENTRY *PFN_glViewport)(GLint, GLint, int, int);
 
 static struct {
     PFN_glGenTextures GenTextures;
@@ -383,6 +385,7 @@ static struct {
     PFN_glFenceSync FenceSync;
     PFN_glDeleteSync DeleteSync;
     PFN_glFlush Flush;
+    PFN_glViewport Viewport;
     PFNGLGETINTEGERVPROC GetIntegerv;
     PFNGLGETSTRINGIPROC GetStringi;
     PFNGLGETSTRINGPROC GetString;
@@ -463,6 +466,7 @@ _glfwGtkGLInit(void) {
     L(FenceSync);
     L(DeleteSync);
     L(Flush);
+    L(Viewport);
     L(GetIntegerv);
     L(GetStringi);
     L(GetString);
@@ -591,12 +595,28 @@ bind_back_buffer(_GLFWwindow *window) {
     gl.BindFramebuffer(GL_FRAMEBUFFER, b ? b->fbo : 0);
 }
 
+// All windows share one GL context, but kitty expects each window to have
+// its own, as on the other backends: it only sets the viewport when a
+// window's size changes. So switching windows swaps in their viewport.
+static void
+switch_viewport(_GLFWwindow *from, _GLFWwindow *to) {
+    if (from) gl.GetIntegerv(GL_VIEWPORT, from->gtk.viewport);
+    if (!to) return;
+    if (!to->gtk.viewport[2] || !to->gtk.viewport[3]) {
+        // A new context's viewport is the size of the surface it is first
+        // made current with
+        to->gtk.viewport[0] = to->gtk.viewport[1] = 0;
+        fb_size(to, &to->gtk.viewport[2], &to->gtk.viewport[3]);
+    }
+    gl.Viewport(to->gtk.viewport[0], to->gtk.viewport[1], to->gtk.viewport[2], to->gtk.viewport[3]);
+}
+
 static void
 make_context_current(_GLFWwindow *window) {
-    if (window) {
-        if (gdk_gl_context_get_current() != _glfw.gtk.gl_context) gdk_gl_context_make_current(_glfw.gtk.gl_context);
-        bind_back_buffer(window);
-    }
+    _GLFWwindow *prev = _glfwPlatformGetTls(&_glfw.contextSlot);
+    if (window || prev) _glfwGtkRestoreContext();
+    if (prev != window) switch_viewport(prev, window);
+    if (window) bind_back_buffer(window);
     _glfwPlatformSetTls(&_glfw.contextSlot, window);
 }
 

@@ -122,6 +122,8 @@ typedef struct _GLFWwindowGtk {
     _GLFWgtkBuffer **buffers;
     size_t num_buffers;
     _GLFWgtkBuffer *back;
+    // The GL viewport kitty last set for this window, see make_context_current()
+    int viewport[4];
     GdkTexture *texture;
 
     struct {
