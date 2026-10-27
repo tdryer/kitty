@@ -1,30 +1,14 @@
-//========================================================================
-// GLFW 3.4 GTK 4 / libadwaita - www.glfw.org
-//------------------------------------------------------------------------
-// Desktop notifications and session state monitoring over GDBus. The other
-// Linux backends do the same with libdbus on their own event loop, see
-// linux_notify.c and linux_session_monitor.c, which this follows.
-//
-// This software is provided 'as-is', without any express or implied
-// warranty. In no event will the authors be held liable for any damages
-// arising from the use of this software.
-//
-// Permission is granted to anyone to use this software for any purpose,
-// including commercial applications, and to alter it and redistribute it
-// freely, subject to the following restrictions:
-//
-// 1. The origin of this software must not be misrepresented; you must not
-//    claim that you wrote the original software. If you use this software
-//    in a product, an acknowledgment in the product documentation would
-//    be appreciated but is not required.
-//
-// 2. Altered source versions must be plainly marked as such, and must not
-//    be misrepresented as being the original software.
-//
-// 3. This notice may not be removed or altered from any source
-//    distribution.
-//
-//========================================================================
+/*
+ * gtk_dbus.c
+ * Copyright (C) 2026 Tom Dryer <tomdryer.com at gmail.com>
+ *
+ * Desktop notifications and session state monitoring over GDBus, for the GTK
+ * backend. A port of linux_notify.c (Copyright (C) 2019 Kovid Goyal) and
+ * linux_session_monitor.c (Copyright (C) 2026 Kovid Goyal), which do the same
+ * with libdbus on their own event loop.
+ *
+ * Distributed under terms of the GPL3 license.
+ */
 
 #include "internal.h"
 

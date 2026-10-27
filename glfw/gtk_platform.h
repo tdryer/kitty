@@ -1,10 +1,16 @@
 //========================================================================
 // GLFW 3.4 GTK 4 / libadwaita - www.glfw.org
 //------------------------------------------------------------------------
+// Copyright (c) 2016 Google Inc.
+// Copyright (c) 2016-2019 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2026 Tom Dryer <tomdryer.com@gmail.com>
+//
 // This backend runs kitty inside a GTK 4 / libadwaita window on Wayland.
 // GTK owns the event loop and the toplevel surfaces. kitty renders with a
 // single GL context, shared by all windows, into per window offscreen
 // textures that are handed to GTK as GdkGLTextures.
+//
+// Started from the null backend (null_*.c), whose stubs remain in places.
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages

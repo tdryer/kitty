@@ -1,8 +1,11 @@
 //========================================================================
 // GLFW 3.4 GTK 4 / libadwaita - www.glfw.org
 //------------------------------------------------------------------------
+// Copyright (c) 2018 Kovid Goyal <kovid@kovidgoyal.net>
+// Copyright (c) 2026 Tom Dryer <tomdryer.com@gmail.com>
+//
 // Keyboard input: GDK key events and GTK input methods to GLFWkeyevent.
-// GDK keyvals are X/xkb keysyms, so this mirrors xkb_glfw.c.
+// GDK keyvals are X/xkb keysyms, so large parts are adapted from xkb_glfw.c.
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages

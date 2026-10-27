@@ -1,9 +1,15 @@
 //========================================================================
 // GLFW 3.4 GTK 4 / libadwaita - www.glfw.org
 //------------------------------------------------------------------------
+// Copyright (c) 2016 Google Inc.
+// Copyright (c) 2016-2019 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2026 Tom Dryer <tomdryer.com@gmail.com>
+//
 // Windows: an AdwWindow with an AdwToolbarView whose top bar is an
 // AdwHeaderBar and whose content is a KittyView, a small widget that shows
 // the texture kitty last rendered and receives input.
+//
+// Started from the null backend (null_*.c), whose stubs remain in places.
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages

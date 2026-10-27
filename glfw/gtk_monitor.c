@@ -1,8 +1,14 @@
 //========================================================================
 // GLFW 3.4 GTK 4 / libadwaita - www.glfw.org
 //------------------------------------------------------------------------
+// Copyright (c) 2016 Google Inc.
+// Copyright (c) 2016-2019 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2026 Tom Dryer <tomdryer.com@gmail.com>
+//
 // Monitors, from gdk_display_get_monitors(). Video modes and gamma are not
 // available under Wayland and are stubbed.
+//
+// Started from the null backend (null_*.c), whose stubs remain in places.
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
